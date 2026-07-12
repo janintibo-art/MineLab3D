@@ -1,19 +1,22 @@
 # MineLab 3D 🗡️💣
 
-Jeu Android natif (Kotlin) : un démineur dans un labyrinthe 3D vu à la première personne.
-Un petit héros armé d'une épée doit sonder le sol, désamorcer les mines, résoudre les
-énigmes des portes magiques, combattre les monstres des salles... et atteindre le
-portail vert de sortie.
+Jeu Android natif (Kotlin) : un démineur en 3D, vue à la 3e personne.
+Le sol est un véritable plateau de démineur : des dalles grises à sonder, qui se retournent
+en affichant leur chiffre. Un petit héros armé d'une épée (visible à l'écran) doit désamorcer
+les mines, résoudre les énigmes des portes, combattre les monstres et atteindre le portail vert.
 
 ## Gameplay
 - **Croix directionnelle** (gauche) : avancer / reculer / tourner.
-- **SONDER** : analyse la case juste devant. Si elle est sûre, la mini-carte affiche
-  le nombre de mines adjacentes (comme au démineur). Si c'est une mine, un drapeau rouge apparaît.
+- **SONDER** : analyse la dalle surlignée en jaune devant le héros. Si elle est sûre, elle se
+  retourne et affiche au sol son nombre de mines adjacentes (avec cascade automatique quand c'est 0,
+  comme au démineur). Si c'est une mine, un drapeau rouge se plante dessus.
 - **DÉSAMORCER** : neutralise une mine détectée (drapeau) devant vous.
 - **ÉPÉE !** : frappe le monstre en face de vous (portée courte). Tuer un monstre rend 15 PV.
 - Marcher sur une mine non sondée = **BOUM**, -25 PV.
 - Les portes violettes posent une **énigme** : mauvaise réponse = -10 PV.
-- La **mini-carte** en haut à droite montre les cases révélées et leurs chiffres.
+- Les dalles non révélées sont en **relief gris**, les dalles révélées sont **plates et claires**
+  avec leur chiffre coloré écrit au sol (1 bleu, 2 vert, 3 rouge...).
+- La **mini-carte** en haut à droite donne une vue d'ensemble.
 - Le labyrinthe, les mines, les salles et les monstres sont **générés aléatoirement** à chaque partie.
 
 ## Compiler l'APK avec GitHub Actions

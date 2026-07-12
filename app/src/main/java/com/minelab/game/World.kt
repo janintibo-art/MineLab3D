@@ -148,6 +148,33 @@ class World(val size: Int = 21, seed: Long = System.currentTimeMillis()) {
         }
     }
 
+    /**
+     * Revele une dalle. Si elle n'a aucune mine adjacente, revele en cascade
+     * toutes les dalles voisines (comme au demineur classique).
+     */
+    fun revealCascade(sx: Int, sy: Int) {
+        val stack = ArrayDeque<Pair<Int, Int>>()
+        stack.addLast(Pair(sx, sy))
+        while (stack.isNotEmpty()) {
+            val p = stack.removeLast()
+            val x = p.first
+            val y = p.second
+            if (x !in 0 until size || y !in 0 until size) continue
+            val i = idx(x, y)
+            if (grid[i] == WALL) continue
+            if (i in revealed) continue
+            if (i in mines) continue
+            revealed.add(i)
+            if (grid[i] == DOOR) continue
+            if (mineCountAround(x, y) == 0) {
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    stack.addLast(Pair(x + dx, y + dy))
+                }
+            }
+        }
+    }
+
     /** Nombre de mines dans les 8 cases adjacentes. */
     fun mineCountAround(x: Int, y: Int): Int {
         var c = 0

@@ -518,7 +518,7 @@ class GameView(context: Context) : View(context) {
                     // LE CHIFFRE DU DEMINEUR, ecrit au sol
                     if (revealedTile && n > 0 && !isExit && c != World.DOOR) {
                         project(mx, my, 0.02)?.let { s ->
-                            val ts = (focal * 0.62f / s[2])
+                            val ts = (focal * 0.62 / s[2]).toFloat()
                             if (ts > 6f) {
                                 paint.textAlign = Paint.Align.CENTER
                                 paint.textSize = ts
@@ -737,15 +737,15 @@ class GameView(context: Context) : View(context) {
         val by = b[1]
         val d = hypot(mo.x - camX, mo.y - camY)
         val f = fog(d)
-        val flash = mo.hitFlash > 0
+        val hitFx = mo.hitFlash > 0
 
         paint.color = Color.argb(90, 0, 0, 0)
         cv.drawOval(cxs - hh * 0.3f, by - hh * 0.07f, cxs + hh * 0.3f, by + hh * 0.07f, paint)
         // Corps
-        paint.color = if (flash) Color.rgb(255, 235, 235) else shade(Color.rgb(150, 45, 50), f)
+        paint.color = if (hitFx) Color.rgb(255, 235, 235) else shade(Color.rgb(150, 45, 50), f)
         cv.drawCircle(cxs, by - hh * 0.42f, hh * 0.42f, paint)
         // Cornes
-        paint.color = if (flash) Color.WHITE else shade(Color.rgb(95, 25, 30), f)
+        paint.color = if (hitFx) Color.WHITE else shade(Color.rgb(95, 25, 30), f)
         cv.drawCircle(cxs - hh * 0.32f, by - hh * 0.74f, hh * 0.10f, paint)
         cv.drawCircle(cxs + hh * 0.32f, by - hh * 0.74f, hh * 0.10f, paint)
         // Yeux

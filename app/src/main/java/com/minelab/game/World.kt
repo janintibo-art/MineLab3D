@@ -2,22 +2,19 @@ package com.minelab.game
 
 import kotlin.random.Random
 
-/** Monstre (le combat sera ajoute plus tard). */
-class Monster(var x: Int, var y: Int) {
-    var hp = 50
-    var alive = true
-}
-
 /**
- * Grand labyrinthe dont chaque case de sol est une dalle de demineur.
- * Contient la generation, les mines, la revelation en cascade,
- * et la recherche de chemin (le heros se deplace tout seul).
+ * Grand labyrinthe (41x41) dont chaque case de sol est une dalle de demineur.
+ *
+ * Contient aussi la SALLE A ENIGME : pousser les 3 blocs sur les 3 dalles de
+ * pression ouvre le coffre, qui contient la CLE, qui ouvre la PORTE menant a
+ * la salle de sortie.
  */
-class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
+class World(val size: Int = 41, seed: Long = System.currentTimeMillis()) {
 
     companion object {
         const val WALL = 0
         const val FLOOR = 1
+        const val DOOR = 2
     }
 
     private val rnd = Random(seed)
@@ -27,25 +24,39 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
     val revealed = HashSet<Int>()
     val flagged = HashSet<Int>()
     val exploded = HashSet<Int>()
-    val monsters = ArrayList<Monster>()
+
+    // Enigme
+    val blocks = HashSet<Int>()
+    val plates = HashSet<Int>()
+    var chest = -1
+    var chestOpen = false
+    var hasKey = false
+    var door = -1
 
     var startX = 1
     var startY = 1
-    var exitX = size - 2
-    var exitY = size - 2
+    var exitX = 0
+    var exitY = 0
     var totalMines = 0
+
+    private val rx = size - 14
+    private val ry = size - 14
+    private val rw = 9
+    private val rh = 9
 
     fun idx(x: Int, y: Int) = y * size + x
     fun inside(x: Int, y: Int) = x in 0 until size && y in 0 until size
     fun isFloor(x: Int, y: Int) = inside(x, y) && grid[idx(x, y)] == FLOOR
+    fun isDoor(x: Int, y: Int) = inside(x, y) && grid[idx(x, y)] == DOOR
 
     init {
         carveMaze()
         carveRooms()
         openExtraPassages()
-        grid[idx(exitX, exitY)] = FLOOR
+        buildPuzzleRoom()
         placeMines()
         totalMines = mines.size
+        revealCascade(startX, startY)
     }
 
     // ------------------------------------------------------------ generation
@@ -70,26 +81,23 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
         }
     }
 
-    /** Grandes salles (futures arenes de combat). */
     private fun carveRooms() {
-        repeat(5) {
-            val rw = 5
-            val rh = 5
-            val rx = 2 + 2 * rnd.nextInt((size - rw - 3) / 2)
-            val ry = 2 + 2 * rnd.nextInt((size - rh - 3) / 2)
-            for (y in ry until ry + rh) for (x in rx until rx + rw) {
-                if (inside(x, y) && x in 1 until size - 1 && y in 1 until size - 1) {
-                    grid[idx(x, y)] = FLOOR
-                }
+        repeat(6) {
+            val w = 5
+            val h = 5
+            val x0 = 2 + 2 * rnd.nextInt((size - w - 4) / 2)
+            val y0 = 2 + 2 * rnd.nextInt((size - h - 4) / 2)
+            for (y in y0 until y0 + h) for (x in x0 until x0 + w) {
+                if (x in 1 until size - 1 && y in 1 until size - 1) grid[idx(x, y)] = FLOOR
             }
         }
     }
 
-    /** Quelques murs abattus : le labyrinthe devient moins etouffant. */
+    /** On abat des murs : plusieurs itineraires possibles, moins de culs-de-sac. */
     private fun openExtraPassages() {
-        var n = size * 2
+        var n = size * 3
         var guard = 0
-        while (n > 0 && guard < 8000) {
+        while (n > 0 && guard < 20000) {
             guard++
             val x = 1 + rnd.nextInt(size - 2)
             val y = 1 + rnd.nextInt(size - 2)
@@ -100,23 +108,85 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
         }
     }
 
+    private fun buildPuzzleRoom() {
+        // Enceinte
+        for (y in ry - 1..ry + rh) for (x in rx - 1..rx + rw) {
+            if (inside(x, y)) grid[idx(x, y)] = WALL
+        }
+        // Interieur de la salle a enigme
+        for (y in ry until ry + rh) for (x in rx until rx + rw) grid[idx(x, y)] = FLOOR
+
+        // Chambre de sortie, scellee, juste en dessous
+        val ex0 = rx + 3
+        val ey0 = ry + rh + 2
+        for (y in ey0 - 2..ey0 + 3) for (x in ex0 - 2..ex0 + 4) {
+            if (inside(x, y)) grid[idx(x, y)] = WALL
+        }
+        for (y in ey0 until ey0 + 3) for (x in ex0 until ex0 + 3) {
+            if (inside(x, y)) grid[idx(x, y)] = FLOOR
+        }
+        // La porte : unique passage vers la sortie
+        val dxp = ex0 + 1
+        val dyp = ry + rh
+        grid[idx(dxp, dyp)] = DOOR
+        grid[idx(dxp, dyp + 1)] = FLOOR
+        door = idx(dxp, dyp)
+
+        exitX = ex0 + 1
+        exitY = ey0 + 1
+
+        // Deux tunnels de liaison avec le labyrinthe
+        digTunnel(rx - 1, ry + 1, -1, 0)
+        digTunnel(rx + 1, ry - 1, 0, -1)
+
+        // Enigme
+        plates.add(idx(rx + 1, ry + 1))
+        plates.add(idx(rx + 7, ry + 1))
+        plates.add(idx(rx + 1, ry + 7))
+        blocks.add(idx(rx + 3, ry + 3))
+        blocks.add(idx(rx + 5, ry + 3))
+        blocks.add(idx(rx + 4, ry + 5))
+        chest = idx(rx + 7, ry + 6)
+
+        // Salle eclairee : dalles deja revelees
+        for (y in ry - 1..ry + rh + 1) for (x in rx - 1..rx + rw + 1) {
+            if (isFloor(x, y)) revealed.add(idx(x, y))
+        }
+    }
+
+    private fun digTunnel(sx: Int, sy: Int, dx: Int, dy: Int) {
+        var x = sx
+        var y = sy
+        var steps = 0
+        while (x in 1 until size - 1 && y in 1 until size - 1 && steps < size) {
+            grid[idx(x, y)] = FLOOR
+            x += dx
+            y += dy
+            steps++
+            if (steps > 1 && isFloor(x, y)) break
+        }
+    }
+
     private fun placeMines() {
         val floors = ArrayList<Int>()
         for (i in grid.indices) if (grid[i] == FLOOR) floors.add(i)
-        // Zone de depart sure (3x3) et sortie sure
+
         val safe = HashSet<Int>()
-        for (dy in -1..1) for (dx in -1..1) {
+        for (dy in -2..2) for (dx in -2..2) {
             if (inside(startX + dx, startY + dy)) safe.add(idx(startX + dx, startY + dy))
-            if (inside(exitX + dx, exitY + dy)) safe.add(idx(exitX + dx, exitY + dy))
         }
+        // Aucune mine dans la salle a enigme ni dans la sortie : c'est un puzzle
+        for (y in ry - 2 until size) for (x in rx - 2 until size) {
+            if (inside(x, y)) safe.add(idx(x, y))
+        }
+
         val target = (floors.size * 0.13).toInt()
         var placed = 0
         var guard = 0
-        while (placed < target && guard < 40000) {
+        while (placed < target && guard < 60000) {
             guard++
             val c = floors[rnd.nextInt(floors.size)]
             if (c in mines || c in safe) continue
-            // On ne bouche pas un couloir etroit : sinon le niveau devient infaisable
             mines.add(c)
             placed++
         }
@@ -124,7 +194,6 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
 
     // ------------------------------------------------------------ demineur
 
-    /** Nombre de mines parmi les 8 cases voisines. */
     fun countAround(x: Int, y: Int): Int {
         var c = 0
         for (dy in -1..1) for (dx in -1..1) {
@@ -136,14 +205,23 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
         return c
     }
 
-    /** Une dalle est "sure" (praticable) si revelee, sans mine et sans drapeau. */
     fun isWalkable(x: Int, y: Int): Boolean {
         if (!isFloor(x, y)) return false
         val i = idx(x, y)
-        return i in revealed && i !in mines && i !in flagged
+        if (i in mines || i in flagged || i in blocks) return false
+        if (i == chest) return false
+        return i in revealed
     }
 
-    /** Revele une dalle, avec cascade si aucune mine autour (demineur classique). */
+    fun canPushInto(x: Int, y: Int): Boolean {
+        if (!isFloor(x, y)) return false
+        val i = idx(x, y)
+        if (i in blocks || i == chest || i in mines || i in flagged) return false
+        return true
+    }
+
+    fun platesSolved(): Boolean = plates.all { it in blocks }
+
     fun revealCascade(sx: Int, sy: Int) {
         val stack = ArrayDeque<Pair<Int, Int>>()
         stack.addLast(Pair(sx, sy))
@@ -164,11 +242,7 @@ class World(val size: Int = 31, seed: Long = System.currentTimeMillis()) {
 
     // ------------------------------------------------------------ chemin
 
-    /**
-     * Plus court chemin (BFS, 4 directions) du heros vers (tx,ty),
-     * en ne passant que par des dalles revelees et sures.
-     * Renvoie la liste des cases a parcourir (sans la case de depart), ou null.
-     */
+    /** Plus court chemin (BFS 4 directions) par les dalles sures deja revelees. */
     fun findPath(fx: Int, fy: Int, tx: Int, ty: Int): List<Pair<Int, Int>>? {
         if (!isWalkable(tx, ty)) return null
         if (fx == tx && fy == ty) return emptyList()

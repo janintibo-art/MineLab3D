@@ -20,6 +20,22 @@ vu de dessus. Le petit bonhomme **se déplace tout seul** vers la dalle que vous
 
 Le combat contre les monstres sera ajouté ensuite.
 
+
+## Écran de présentation
+- **Nom du héros** (touchez le champ pour le modifier)
+- **Difficulté** : FACILE (31×31, 10 % de mines) / NORMAL (41×41, 13 %) / DIFFICILE (51×51, 17 %)
+- **VIE ILLIMITÉE** : mode test, aucun dégât (pratique pour tester les modifs)
+- **NOUVELLE PARTIE** / **CONTINUER** (sauvegarde automatique)
+
+## Drapeaux limités
+Vous avez **exactement autant de drapeaux que de mines**. Désamorcer une mine **consomme** son
+drapeau. Un drapeau posé sur une dalle vide puis désamorcé est **gaspillé** : il vous manquera un
+drapeau plus tard, et vous devrez faire exploser une mine (‑20 PV). Le coffre offre **+5 drapeaux**.
+
+## Menu en jeu (bouton ☰)
+Reprendre · **Inventaire** (drapeaux, clé, mines désamorcées, PV, épée à venir) · Sauvegarder ·
+Comment jouer · Nouvelle partie · Menu principal.
+
 ## Compiler l'APK
 Poussez sur GitHub : le workflow `.github/workflows/build.yml` compile l'APK.
 Onglet **Actions** → dernier run → **Artifacts** → `MineLab3D-debug` (contient `app-debug.apk`).

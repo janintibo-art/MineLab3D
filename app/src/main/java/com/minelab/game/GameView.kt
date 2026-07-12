@@ -1,13 +1,16 @@
 package com.minelab.game
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
+import android.widget.EditText
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -15,17 +18,26 @@ import kotlin.math.min
 import kotlin.math.sign
 import kotlin.math.sin
 
-/**
- * Plateau de demineur 2D dans un labyrinthe.
- * - On touche une dalle : le heros s'y rend tout seul et la sonde.
- * - Appui long : drapeau. Toucher une dalle a drapeau : le heros la desamorce (sans risque).
- * - On peut faire glisser la carte au doigt, zoomer, et recentrer sur le heros.
- * - Salle a enigme : pousser les 3 blocs sur les 3 dalles -> coffre -> cle -> porte -> sortie.
- */
 class GameView(context: Context) : View(context) {
 
-    private var world = World()
+    // ---------------------------------------------------------------- etats
+    private val TITLE = 0
+    private val PLAYING = 1
+    private var state = TITLE
 
+    private var showHelp = false
+    private var showMenu = false
+    private var showInv = false
+
+    // ---------------------------------------------------------------- profil
+    private var playerName = "Heros"
+    private var difficulty = 1          // 0 facile, 1 normal, 2 difficile
+    private var godMode = false         // vie illimitee (mode test)
+
+    private val prefs = context.getSharedPreferences("minelab", Context.MODE_PRIVATE)
+
+    // ---------------------------------------------------------------- partie
+    private var world = World()
     private var hx = 1
     private var hy = 1
     private var fx = 1.5f
@@ -40,13 +52,13 @@ class GameView(context: Context) : View(context) {
 
     private var hp = 100
     private var disarmed = 0
+    private var flagsLeft = 0
     private var flagMode = false
     private var gameOver = false
     private var victory = false
-    private var showHelp = false
 
-    private var message = "Touchez une dalle : le heros ira la sonder."
-    private var msgTimer = 5f
+    private var message = ""
+    private var msgTimer = 0f
     private var boomFlash = 0f
     private var walkPhase = 0f
 
@@ -61,12 +73,28 @@ class GameView(context: Context) : View(context) {
     private var boardTop = 0f
     private var boardBottom = 0f
 
+    // Boutons jeu
     private val btnFlag = RectF()
     private val btnZoomOut = RectF()
     private val btnZoomIn = RectF()
     private val btnCenter = RectF()
-    private val btnRestart = RectF()
-    private val btnHelp = RectF()
+    private val btnMenu = RectF()
+
+    // Boutons titre
+    private val tName = RectF()
+    private val tDiff = arrayOf(RectF(), RectF(), RectF())
+    private val tGod = RectF()
+    private val tNew = RectF()
+    private val tCont = RectF()
+    private val tHelp = RectF()
+
+    // Boutons menu in-game
+    private val mResume = RectF()
+    private val mSave = RectF()
+    private val mInv = RectF()
+    private val mHelp = RectF()
+    private val mRestart = RectF()
+    private val mQuit = RectF()
 
     private var downX = 0f
     private var downY = 0f
@@ -78,42 +106,177 @@ class GameView(context: Context) : View(context) {
 
     init {
         isFocusable = true
-        newGame()
+        playerName = prefs.getString("name", "Heros") ?: "Heros"
+        difficulty = prefs.getInt("diff", 1)
+        godMode = prefs.getBoolean("god", false)
     }
 
+    // ============================================================ DIFFICULTE
+
+    private fun diffName(d: Int) = when (d) {
+        0 -> "FACILE"
+        2 -> "DIFFICILE"
+        else -> "NORMAL"
+    }
+
+    private fun diffSize(d: Int) = when (d) {
+        0 -> 31
+        2 -> 51
+        else -> 41
+    }
+
+    private fun diffDensity(d: Int) = when (d) {
+        0 -> 0.10
+        2 -> 0.17
+        else -> 0.13
+    }
+
+    // ============================================================ PARTIE
+
     private fun newGame() {
-        world = World()
+        world = World(diffSize(difficulty), System.currentTimeMillis(), diffDensity(difficulty))
         hx = world.startX; hy = world.startY
         fx = hx + 0.5f; fy = hy + 0.5f
         camX = fx; camY = fy
         following = true
         path = emptyList(); pathStep = 0
-        pendingReveal = -1; pendingDisarm = -1; pendingChest = false; pendingDoor = false
-        hp = 100; disarmed = 0
-        gameOver = false; victory = false; flagMode = false; showHelp = false
+        clearPendings()
+        hp = 100
+        disarmed = 0
+        flagsLeft = world.totalMines
+        gameOver = false; victory = false; flagMode = false
+        showHelp = false; showMenu = false; showInv = false
         boomFlash = 0f
-        showMsg("Trouvez la salle a enigme (en bas a droite de la carte) !")
+        state = PLAYING
+        showMsg("Bonne chance, $playerName ! (bouton ? pour les regles)")
+        saveGame()
     }
 
     private fun showMsg(m: String) { message = m; msgTimer = 4f }
 
+    // ============================================================ SAUVEGARDE
+
+    private fun hasSave() = prefs.getBoolean("has", false)
+
+    private fun setToStr(s: Collection<Int>) = s.joinToString(",")
+
+    private fun strToSet(s: String?): HashSet<Int> {
+        val out = HashSet<Int>()
+        if (s.isNullOrBlank()) return out
+        for (p in s.split(",")) p.trim().toIntOrNull()?.let { out.add(it) }
+        return out
+    }
+
+    private fun saveGame() {
+        prefs.edit().apply {
+            putBoolean("has", true)
+            putString("name", playerName)
+            putInt("diff", difficulty)
+            putBoolean("god", godMode)
+            putLong("seed", world.seed)
+            putInt("size", world.size)
+            putFloat("dens", world.density.toFloat())
+            putInt("hp", hp)
+            putInt("hx", hx)
+            putInt("hy", hy)
+            putInt("dis", disarmed)
+            putInt("flags", flagsLeft)
+            putBoolean("key", world.hasKey)
+            putBoolean("chest", world.chestOpen)
+            putBoolean("door", world.grid[world.door] == World.FLOOR)
+            putString("mines", setToStr(world.mines))
+            putString("rev", setToStr(world.revealed))
+            putString("flg", setToStr(world.flagged))
+            putString("exp", setToStr(world.exploded))
+            putString("blk", setToStr(world.blocks))
+            apply()
+        }
+    }
+
+    private fun loadGame(): Boolean {
+        if (!hasSave()) return false
+        val seed = prefs.getLong("seed", 0L)
+        val size = prefs.getInt("size", 41)
+        val dens = prefs.getFloat("dens", 0.13f).toDouble()
+        world = World(size, seed, dens)
+
+        world.mines.clear(); world.mines.addAll(strToSet(prefs.getString("mines", "")))
+        world.revealed.clear(); world.revealed.addAll(strToSet(prefs.getString("rev", "")))
+        world.flagged.clear(); world.flagged.addAll(strToSet(prefs.getString("flg", "")))
+        world.exploded.clear(); world.exploded.addAll(strToSet(prefs.getString("exp", "")))
+        world.blocks.clear(); world.blocks.addAll(strToSet(prefs.getString("blk", "")))
+        world.hasKey = prefs.getBoolean("key", false)
+        world.chestOpen = prefs.getBoolean("chest", false)
+        if (prefs.getBoolean("door", false)) world.grid[world.door] = World.FLOOR
+
+        playerName = prefs.getString("name", "Heros") ?: "Heros"
+        difficulty = prefs.getInt("diff", 1)
+        godMode = prefs.getBoolean("god", false)
+        hp = prefs.getInt("hp", 100)
+        hx = prefs.getInt("hx", world.startX)
+        hy = prefs.getInt("hy", world.startY)
+        disarmed = prefs.getInt("dis", 0)
+        flagsLeft = prefs.getInt("flags", world.totalMines)
+
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        following = true
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        gameOver = false; victory = false; flagMode = false
+        showHelp = false; showMenu = false; showInv = false
+        state = PLAYING
+        showMsg("Partie chargee. Bon retour, $playerName !")
+        return true
+    }
+
+    // ============================================================ LAYOUT
+
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
+        val wf = w.toFloat()
+        val hf = h.toFloat()
         tile = min(w, h) / 9f
-        boardTop = h * 0.13f
-        boardBottom = h - h * 0.10f
+        boardTop = hf * 0.13f
+        boardBottom = hf - hf * 0.10f
 
-        val bh = h * 0.062f
-        val y0 = boardBottom + (h - boardBottom - bh) / 2f
-        val m = w * 0.025f
-        val gap = w * 0.012f
-        var x = w - m
-        btnHelp.set(x - bh, y0, x, y0 + bh); x -= bh + gap
-        btnRestart.set(x - bh, y0, x, y0 + bh); x -= bh + gap
+        val bh = hf * 0.062f
+        val y0 = boardBottom + (hf - boardBottom - bh) / 2f
+        val m = wf * 0.025f
+        val gap = wf * 0.012f
+        var x = wf - m
+        btnMenu.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnCenter.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomIn.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
+
+        // Ecran titre
+        val cw = wf * 0.78f
+        val cx0 = (wf - cw) / 2f
+        val rh = hf * 0.062f
+        tName.set(cx0, hf * 0.30f, cx0 + cw, hf * 0.30f + rh)
+        val dw = (cw - 2 * gap) / 3f
+        for (k in 0..2) {
+            tDiff[k].set(cx0 + k * (dw + gap), hf * 0.42f, cx0 + k * (dw + gap) + dw, hf * 0.42f + rh)
+        }
+        tGod.set(cx0, hf * 0.52f, cx0 + cw, hf * 0.52f + rh)
+        tNew.set(cx0, hf * 0.63f, cx0 + cw, hf * 0.63f + rh * 1.15f)
+        tCont.set(cx0, hf * 0.72f, cx0 + cw, hf * 0.72f + rh * 1.15f)
+        tHelp.set(cx0, hf * 0.81f, cx0 + cw, hf * 0.81f + rh * 1.15f)
+
+        // Menu en jeu
+        val mw = wf * 0.7f
+        val mx = (wf - mw) / 2f
+        var my = hf * 0.24f
+        val mh = hf * 0.075f
+        val mg = hf * 0.018f
+        mResume.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mInv.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mSave.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mHelp.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mRestart.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mQuit.set(mx, my, mx + mw, my + mh)
     }
 
     // ============================================================ LOGIQUE
@@ -121,6 +284,7 @@ class GameView(context: Context) : View(context) {
     private fun update(dt: Float) {
         msgTimer -= dt
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
+        if (state != PLAYING) return
 
         if (following) {
             camX += (fx - camX) * min(1f, dt * 8f)
@@ -128,7 +292,7 @@ class GameView(context: Context) : View(context) {
         }
         clampCam()
 
-        if (gameOver || victory) return
+        if (gameOver || victory || showMenu || showInv || showHelp) return
 
         if (pathStep < path.size) {
             walkPhase += dt * 12f
@@ -142,25 +306,26 @@ class GameView(context: Context) : View(context) {
                 fx = gx; fy = gy
                 hx = tx; hy = ty
                 pathStep++
-                if (hx == world.exitX && hy == world.exitY) { victory = true; return }
+                if (hx == world.exitX && hy == world.exitY) {
+                    victory = true
+                    prefs.edit().putBoolean("has", false).apply()
+                    return
+                }
             } else {
                 fx += sign(dx) * min(abs(dx), speed)
                 fy += sign(dy) * min(abs(dy), speed)
             }
         } else {
-            // Actions declenchees a l'arrivee
             if (pendingReveal >= 0) {
                 val i = pendingReveal; pendingReveal = -1
-                doReveal(i % world.size, i / world.size)
+                doReveal(i % world.size, i / world.size); saveGame()
             } else if (pendingDisarm >= 0) {
                 val i = pendingDisarm; pendingDisarm = -1
-                doDisarm(i % world.size, i / world.size)
+                doDisarm(i % world.size, i / world.size); saveGame()
             } else if (pendingChest) {
-                pendingChest = false
-                openChest()
+                pendingChest = false; openChest(); saveGame()
             } else if (pendingDoor) {
-                pendingDoor = false
-                openDoor()
+                pendingDoor = false; openDoor(); saveGame()
             }
         }
     }
@@ -177,6 +342,17 @@ class GameView(context: Context) : View(context) {
         pendingReveal = -1; pendingDisarm = -1; pendingChest = false; pendingDoor = false
     }
 
+    private fun hurt(n: Int, why: String) {
+        if (godMode) { showMsg("$why (mode test : aucun degat)"); return }
+        hp -= n
+        showMsg(why)
+        if (hp <= 0) {
+            hp = 0
+            gameOver = true
+            prefs.edit().putBoolean("has", false).apply()
+        }
+    }
+
     private fun doReveal(x: Int, y: Int) {
         val i = world.idx(x, y)
         if (i in world.flagged || i in world.revealed) return
@@ -184,10 +360,8 @@ class GameView(context: Context) : View(context) {
             world.mines.remove(i)
             world.exploded.add(i)
             world.revealed.add(i)
-            hp -= 20
             boomFlash = 1f
-            showMsg("BOUM ! -20 PV. Astuce : appui long = drapeau, puis touchez pour desamorcer.")
-            if (hp <= 0) { hp = 0; gameOver = true }
+            hurt(20, "BOUM ! -20 PV. Marquez d'abord (appui long) puis desamorcez !")
         } else {
             world.revealCascade(x, y)
             val n = world.countAround(x, y)
@@ -195,6 +369,7 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /** Desamorcage : consomme definitivement le drapeau (donc le kit). */
     private fun doDisarm(x: Int, y: Int) {
         val i = world.idx(x, y)
         world.flagged.remove(i)
@@ -202,10 +377,10 @@ class GameView(context: Context) : View(context) {
             world.mines.remove(i)
             world.revealed.add(i)
             disarmed++
-            showMsg("Mine desamorcee ! La voie est libre.")
+            showMsg("Mine desamorcee ! Drapeaux restants : $flagsLeft")
         } else {
             world.revealCascade(x, y)
-            showMsg("Fausse alerte : pas de mine ici.")
+            showMsg("Fausse alerte : drapeau gaspille ! Restants : $flagsLeft")
         }
     }
 
@@ -217,20 +392,18 @@ class GameView(context: Context) : View(context) {
         if (world.chestOpen) { showMsg("Le coffre est vide."); return }
         world.chestOpen = true
         world.hasKey = true
-        showMsg("Le coffre s'ouvre : vous trouvez une CLE en or !")
+        flagsLeft += 5
+        showMsg("Le coffre s'ouvre : une CLE en or et 5 drapeaux !")
     }
 
     private fun openDoor() {
         if (!world.hasKey) { showMsg("Porte verrouillee. Il faut la cle du coffre."); return }
         world.grid[world.door] = World.FLOOR
-        val dx = world.door % world.size
-        val dy = world.door / world.size
         world.revealed.add(world.door)
-        world.revealCascade(dx, dy)
+        world.revealCascade(world.door % world.size, world.door / world.size)
         showMsg("La porte s'ouvre ! La sortie est juste derriere.")
     }
 
-    /** Amene le heros sur une case voisine sure de (gx,gy). */
     private fun walkNextTo(gx: Int, gy: Int): Boolean {
         var best: List<Pair<Int, Int>>? = null
         for ((dx, dy) in listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))) {
@@ -246,7 +419,6 @@ class GameView(context: Context) : View(context) {
         return true
     }
 
-    /** Pousse un bloc si le heros est juste a cote. */
     private fun tryPush(bx: Int, by: Int): Boolean {
         val dx = bx - hx
         val dy = by - hy
@@ -259,11 +431,12 @@ class GameView(context: Context) : View(context) {
         world.revealed.add(world.idx(tx, ty))
         world.revealed.add(world.idx(bx, by))
         clearPendings()
-        path = listOf(Pair(bx, by))   // le heros avance sur la case liberee
+        path = listOf(Pair(bx, by))
         pathStep = 0
         val done = world.plates.count { it in world.blocks }
         if (world.platesSolved()) showMsg("Les 3 dalles sont activees ! Le coffre est deverrouille.")
         else showMsg("Dalles activees : $done / 3")
+        saveGame()
         return true
     }
 
@@ -271,7 +444,6 @@ class GameView(context: Context) : View(context) {
         if (gameOver || victory) return
         val i = world.idx(gx, gy)
 
-        // Porte
         if (world.isDoor(gx, gy)) {
             if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la porte."); return }
             clearPendings(); pendingDoor = true
@@ -279,23 +451,18 @@ class GameView(context: Context) : View(context) {
         }
         if (!world.isFloor(gx, gy)) { showMsg("C'est un mur."); return }
 
-        // Bloc a pousser
         if (i in world.blocks) {
             if (tryPush(gx, gy)) return
             if (!walkNextTo(gx, gy)) { showMsg("Bloc inaccessible."); return }
             clearPendings()
-            showMsg("Le heros se place a cote du bloc. Retouchez-le pour le pousser.")
+            showMsg("Le heros se place a cote du bloc. Retouchez-le pour pousser.")
             return
         }
-
-        // Coffre
         if (i == world.chest) {
             if (!walkNextTo(gx, gy)) { showMsg("Coffre inaccessible."); return }
             clearPendings(); pendingChest = true
             return
         }
-
-        // Dalle deja revelee et sure : on s'y rend
         if (i in world.revealed && i !in world.mines && i !in world.flagged) {
             val p = world.findPath(hx, hy, gx, gy)
             if (p == null) { showMsg("Aucun chemin sur vers cette dalle."); return }
@@ -303,27 +470,36 @@ class GameView(context: Context) : View(context) {
             path = p; pathStep = 0
             return
         }
-
-        // Dalle a drapeau : desamorcage (sans risque)
         if (i in world.flagged) {
             if (!walkNextTo(gx, gy)) { showMsg("Dalle inaccessible."); return }
             clearPendings(); pendingDisarm = i
             return
         }
-
-        // Dalle inconnue : sondage (risque : -20 PV si c'est une mine)
         if (!walkNextTo(gx, gy)) { showMsg("Le heros ne peut pas atteindre cette dalle."); return }
         clearPendings(); pendingReveal = i
     }
 
-    private fun onLongPress(gx: Int, gy: Int) {
+    /** Pose / retire un drapeau. Les drapeaux sont limites ! */
+    private fun onFlag(gx: Int, gy: Int) {
         if (gameOver || victory) return
         if (!world.isFloor(gx, gy)) return
         val i = world.idx(gx, gy)
         if (i in world.blocks || i == world.chest) return
         if (i in world.revealed) { showMsg("Dalle deja revelee."); return }
-        if (i in world.flagged) { world.flagged.remove(i); showMsg("Drapeau retire.") }
-        else { world.flagged.add(i); showMsg("Drapeau pose. Retouchez la dalle pour la desamorcer.") }
+        if (i in world.flagged) {
+            world.flagged.remove(i)
+            flagsLeft++
+            showMsg("Drapeau recupere. Restants : $flagsLeft")
+        } else {
+            if (flagsLeft <= 0) {
+                showMsg("Plus de drapeaux ! Retirez-en un ailleurs.")
+                return
+            }
+            world.flagged.add(i)
+            flagsLeft--
+            showMsg("Drapeau pose ($flagsLeft restants). Retouchez la dalle pour desamorcer.")
+        }
+        saveGame()
     }
 
     // ============================================================ RENDU
@@ -336,8 +512,15 @@ class GameView(context: Context) : View(context) {
 
         val w = width.toFloat()
         val h = height.toFloat()
-
         paint.style = Paint.Style.FILL
+
+        if (state == TITLE) {
+            drawTitle(canvas, w, h)
+            if (showHelp) drawHelp(canvas, w, h)
+            postInvalidateOnAnimation()
+            return
+        }
+
         paint.color = Color.rgb(9, 11, 18)
         canvas.drawRect(0f, 0f, w, h, paint)
 
@@ -352,26 +535,88 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb((boomFlash * 170).toInt(), 255, 120, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
         }
+        if (showMenu) drawMenu(canvas, w, h)
+        if (showInv) drawInventory(canvas, w, h)
         if (showHelp) drawHelp(canvas, w, h)
         if (gameOver || victory) drawEnd(canvas, w, h)
 
         postInvalidateOnAnimation()
     }
 
+    // ---------------------------------------------------------- ecran titre
+
+    private fun drawTitle(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.rgb(12, 14, 24)
+        canvas.drawRect(0f, 0f, w, h, paint)
+
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.color = Color.rgb(255, 210, 90)
+        paint.textSize = h * 0.055f
+        canvas.drawText("MINELAB", w / 2f, h * 0.15f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.019f
+        canvas.drawText("Demineur, labyrinthe et enigmes", w / 2f, h * 0.19f, paint)
+
+        // Nom
+        paint.textAlign = Paint.Align.LEFT
+        paint.color = Color.rgb(140, 150, 175)
+        paint.textSize = h * 0.017f
+        canvas.drawText("NOM DU HEROS (touchez pour modifier)", tName.left, tName.top - h * 0.012f, paint)
+        drawPanelBtn(canvas, tName, playerName, false)
+
+        // Difficulte
+        paint.color = Color.rgb(140, 150, 175)
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText("DIFFICULTE", tDiff[0].left, tDiff[0].top - h * 0.012f, paint)
+        for (k in 0..2) drawPanelBtn(canvas, tDiff[k], diffName(k), difficulty == k)
+
+        // Mode test
+        drawPanelBtn(
+            canvas, tGod,
+            if (godMode) "VIE ILLIMITEE : ON (test)" else "VIE ILLIMITEE : OFF",
+            godMode
+        )
+
+        drawPanelBtn(canvas, tNew, "NOUVELLE PARTIE", false)
+        drawPanelBtn(canvas, tCont, if (hasSave()) "CONTINUER" else "AUCUNE SAUVEGARDE", false, hasSave())
+        drawPanelBtn(canvas, tHelp, "COMMENT JOUER ?", false)
+    }
+
+    private fun drawPanelBtn(
+        canvas: Canvas, r: RectF, label: String, on: Boolean, enabled: Boolean = true
+    ) {
+        paint.color = when {
+            !enabled -> Color.rgb(30, 34, 46)
+            on -> Color.rgb(200, 145, 45)
+            else -> Color.rgb(44, 51, 70)
+        }
+        canvas.drawRoundRect(r, r.height() * 0.25f, r.height() * 0.25f, paint)
+        paint.color = if (enabled) Color.WHITE else Color.rgb(90, 95, 110)
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = r.height() * 0.36f
+        canvas.drawText(label, r.centerX(), r.centerY() + r.height() * 0.13f, paint)
+        paint.isFakeBoldText = false
+    }
+
+    // ---------------------------------------------------------- plateau
+
     private fun sx(gx: Float, w: Float) = w / 2f + (gx - camX) * tile
     private fun sy(gy: Float) = (boardTop + boardBottom) / 2f + (gy - camY) * tile
 
     private fun drawBoard(canvas: Canvas, w: Float) {
         val boardH = boardBottom - boardTop
-        val hx0 = (w / tile).toInt() / 2 + 2
-        val hy0 = (boardH / tile).toInt() / 2 + 2
+        val nx = (w / tile).toInt() / 2 + 2
+        val ny = (boardH / tile).toInt() / 2 + 2
         val cgx = camX.toInt()
         val cgy = camY.toInt()
         val gap = tile * 0.045f
         val r = tile * 0.16f
 
-        for (gy in cgy - hy0..cgy + hy0) {
-            for (gx in cgx - hx0..cgx + hx0) {
+        for (gy in cgy - ny..cgy + ny) {
+            for (gx in cgx - nx..cgx + nx) {
                 if (!world.inside(gx, gy)) continue
                 val l = sx(gx.toFloat(), w)
                 val t = sy(gy.toFloat())
@@ -379,13 +624,11 @@ class GameView(context: Context) : View(context) {
                 rect.set(l + gap, t + gap, l + tile - gap, t + tile - gap)
                 val i = world.idx(gx, gy)
 
-                // Mur
                 if (world.grid[i] == World.WALL) {
                     paint.color = Color.rgb(24, 28, 40)
                     canvas.drawRoundRect(rect, r * 0.5f, r * 0.5f, paint)
                     continue
                 }
-                // Porte verrouillee
                 if (world.grid[i] == World.DOOR) {
                     paint.color = Color.rgb(120, 70, 175)
                     canvas.drawRoundRect(rect, r, r, paint)
@@ -442,12 +685,10 @@ class GameView(context: Context) : View(context) {
                         if (i in world.flagged) drawFlag(canvas)
                     }
                 }
-
                 if (i == world.chest) drawChest(canvas)
                 if (i in world.blocks) drawBlock(canvas, i in world.plates)
             }
         }
-
         drawHero(canvas, w)
     }
 
@@ -463,8 +704,8 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawBlock(canvas: Canvas, onPlate: Boolean) {
-        val inset = tile * 0.02f
-        rect.inset(inset, inset)
+        val ins = tile * 0.02f
+        rect.inset(ins, ins)
         paint.color = if (onPlate) Color.rgb(90, 165, 85) else Color.rgb(150, 105, 55)
         canvas.drawRoundRect(rect, tile * 0.1f, tile * 0.1f, paint)
         paint.style = Paint.Style.STROKE
@@ -474,7 +715,7 @@ class GameView(context: Context) : View(context) {
         canvas.drawLine(rect.left, rect.top, rect.right, rect.bottom, paint)
         canvas.drawLine(rect.right, rect.top, rect.left, rect.bottom, paint)
         paint.style = Paint.Style.FILL
-        rect.inset(-inset, -inset)
+        rect.inset(-ins, -ins)
     }
 
     private fun drawChest(canvas: Canvas) {
@@ -483,17 +724,14 @@ class GameView(context: Context) : View(context) {
         val s = tile * 0.34f
         val unlocked = world.platesSolved()
         paint.color = if (world.chestOpen) Color.rgb(105, 80, 50) else Color.rgb(150, 100, 45)
-        canvas.drawRoundRect(
-            RectF(cxx - s, cyy - s * 0.7f, cxx + s, cyy + s * 0.8f),
-            tile * 0.06f, tile * 0.06f, paint
-        )
+        canvas.drawRoundRect(RectF(cxx - s, cyy - s * 0.7f, cxx + s, cyy + s * 0.8f), tile * 0.06f, tile * 0.06f, paint)
         paint.color = if (world.chestOpen) Color.rgb(70, 55, 35) else Color.rgb(120, 80, 35)
-        canvas.drawRoundRect(
-            RectF(cxx - s, cyy - s * 0.9f, cxx + s, cyy - s * 0.2f),
-            tile * 0.06f, tile * 0.06f, paint
-        )
-        paint.color = if (world.chestOpen) Color.rgb(160, 150, 120)
-        else if (unlocked) Color.rgb(255, 220, 80) else Color.rgb(190, 175, 90)
+        canvas.drawRoundRect(RectF(cxx - s, cyy - s * 0.9f, cxx + s, cyy - s * 0.2f), tile * 0.06f, tile * 0.06f, paint)
+        paint.color = when {
+            world.chestOpen -> Color.rgb(160, 150, 120)
+            unlocked -> Color.rgb(255, 220, 80)
+            else -> Color.rgb(190, 175, 90)
+        }
         canvas.drawRect(cxx - s * 0.16f, cyy - s * 0.5f, cxx + s * 0.16f, cyy + s * 0.35f, paint)
         if (unlocked && !world.chestOpen) {
             paint.style = Paint.Style.STROKE
@@ -510,7 +748,7 @@ class GameView(context: Context) : View(context) {
     private fun drawFlag(canvas: Canvas) {
         val cxx = rect.centerX()
         val cyy = rect.centerY()
-        val s = tile * 0.30f
+        val s = tile * 0.3f
         paint.color = Color.rgb(228, 232, 240)
         paint.strokeWidth = tile * 0.05f
         paint.style = Paint.Style.STROKE
@@ -564,44 +802,43 @@ class GameView(context: Context) : View(context) {
         else -> Color.rgb(110, 110, 110)
     }
 
+    // ---------------------------------------------------------- HUD
+
     private fun drawHud(canvas: Canvas, w: Float, h: Float) {
         paint.color = Color.rgb(17, 20, 30)
         canvas.drawRect(0f, 0f, w, boardTop, paint)
         val ts = h * 0.021f
 
-        // Barre de vie
-        val bw = w * 0.26f
+        val bw = w * 0.28f
         val bx = w * 0.04f
         val by = boardTop * 0.22f
         paint.color = Color.rgb(52, 22, 22)
         rect.set(bx, by, bx + bw, by + ts * 1.35f)
         canvas.drawRoundRect(rect, 12f, 12f, paint)
-        paint.color = Color.rgb(215, 55, 50)
-        rect.set(bx, by, bx + bw * (hp / 100f), by + ts * 1.35f)
+        paint.color = if (godMode) Color.rgb(70, 160, 220) else Color.rgb(215, 55, 50)
+        rect.set(bx, by, bx + bw * (if (godMode) 1f else hp / 100f), by + ts * 1.35f)
         canvas.drawRoundRect(rect, 12f, 12f, paint)
         paint.color = Color.WHITE
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = ts
         paint.isFakeBoldText = true
-        canvas.drawText("PV $hp", bx + ts * 0.4f, by + ts * 1.05f, paint)
+        canvas.drawText(if (godMode) "$playerName  PV ∞" else "$playerName  PV $hp", bx + ts * 0.4f, by + ts * 1.05f, paint)
         paint.isFakeBoldText = false
 
         paint.textAlign = Paint.Align.RIGHT
         paint.textSize = ts * 0.9f
-        val key = if (world.hasKey) "CLE : oui" else "CLE : non"
         canvas.drawText(
-            "Mines ${world.mines.size}  Drapeaux ${world.flagged.size}  $key",
+            "Mines ${world.mines.size}   Drapeaux $flagsLeft   ${if (world.hasKey) "CLE" else "-"}",
             w - w * 0.04f, by + ts * 1.05f, paint
         )
 
-        // Objectif
         paint.textAlign = Paint.Align.LEFT
         paint.color = Color.rgb(150, 160, 180)
         paint.textSize = ts * 0.85f
         val done = world.plates.count { it in world.blocks }
         val obj = when {
-            world.hasKey -> "Objectif : ouvrir la porte, puis rejoindre l'etoile."
-            world.platesSolved() -> "Objectif : ouvrir le coffre pour recuperer la cle."
+            world.hasKey -> "Objectif : ouvrir la porte violette, puis l'etoile."
+            world.platesSolved() -> "Objectif : ouvrir le coffre (la cle est dedans)."
             else -> "Objectif : pousser les 3 blocs sur les 3 dalles ($done/3)."
         }
         canvas.drawText(obj, bx, boardTop * 0.55f, paint)
@@ -609,19 +846,17 @@ class GameView(context: Context) : View(context) {
         if (msgTimer > 0f) {
             paint.textAlign = Paint.Align.CENTER
             paint.color = Color.rgb(255, 225, 140)
-            paint.textSize = ts * 0.92f
+            paint.textSize = ts * 0.9f
             canvas.drawText(message, w / 2f, boardTop * 0.86f, paint)
         }
 
-        // Barre du bas
         paint.color = Color.rgb(17, 20, 30)
         canvas.drawRect(0f, boardBottom, w, h, paint)
-        drawBtn(canvas, btnFlag, if (flagMode) "DRAPEAU : ON" else "DRAPEAU : OFF", flagMode)
+        drawBtn(canvas, btnFlag, if (flagMode) "DRAPEAU ON ($flagsLeft)" else "DRAPEAU OFF ($flagsLeft)", flagMode)
         drawBtn(canvas, btnZoomOut, "−", false)
         drawBtn(canvas, btnZoomIn, "+", false)
         drawBtn(canvas, btnCenter, "◎", false)
-        drawBtn(canvas, btnRestart, "⟳", false)
-        drawBtn(canvas, btnHelp, "?", false)
+        drawBtn(canvas, btnMenu, "☰", false)
     }
 
     private fun drawBtn(canvas: Canvas, r: RectF, label: String, on: Boolean) {
@@ -630,45 +865,117 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.WHITE
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
-        paint.textSize = if (label.length > 2) r.height() * 0.32f else r.height() * 0.45f
+        paint.textSize = if (label.length > 2) r.height() * 0.3f else r.height() * 0.45f
         canvas.drawText(label, r.centerX(), r.centerY() + r.height() * 0.15f, paint)
         paint.isFakeBoldText = false
     }
 
-    private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
+    // ---------------------------------------------------------- menu / inventaire
+
+    private fun drawMenu(canvas: Canvas, w: Float, h: Float) {
         paint.color = Color.argb(235, 8, 10, 18)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(255, 210, 90)
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.032f
+        canvas.drawText("MENU", w / 2f, h * 0.17f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.018f
+        canvas.drawText("$playerName  -  ${diffName(difficulty)}", w / 2f, h * 0.21f, paint)
+
+        drawPanelBtn(canvas, mResume, "REPRENDRE", false)
+        drawPanelBtn(canvas, mInv, "INVENTAIRE", false)
+        drawPanelBtn(canvas, mSave, "SAUVEGARDER", false)
+        drawPanelBtn(canvas, mHelp, "COMMENT JOUER ?", false)
+        drawPanelBtn(canvas, mRestart, "NOUVELLE PARTIE", false)
+        drawPanelBtn(canvas, mQuit, "MENU PRINCIPAL", false)
+    }
+
+    private fun drawInventory(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(240, 10, 12, 22)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(255, 210, 90)
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.032f
+        canvas.drawText("INVENTAIRE", w / 2f, h * 0.15f, paint)
+        paint.isFakeBoldText = false
+
+        val items = listOf(
+            Triple("Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
+            Triple("Cle en or", if (world.hasKey) "1" else "0", Color.rgb(245, 215, 90)),
+            Triple("Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
+            Triple("Mines restantes", "${world.mines.size}", Color.rgb(180, 190, 210)),
+            Triple("Points de vie", if (godMode) "illimites" else "$hp", Color.rgb(215, 90, 85)),
+            Triple("Epee", "a venir", Color.rgb(120, 130, 150))
+        )
+        var y = h * 0.23f
+        val bw = w * 0.78f
+        val bx = (w - bw) / 2f
+        for ((label, value, col) in items) {
+            rect.set(bx, y, bx + bw, y + h * 0.06f)
+            paint.color = Color.rgb(28, 33, 46)
+            canvas.drawRoundRect(rect, h * 0.012f, h * 0.012f, paint)
+            paint.color = col
+            canvas.drawCircle(bx + h * 0.03f, rect.centerY(), h * 0.014f, paint)
+            paint.color = Color.WHITE
+            paint.textAlign = Paint.Align.LEFT
+            paint.textSize = h * 0.02f
+            canvas.drawText(label, bx + h * 0.055f, rect.centerY() + h * 0.007f, paint)
+            paint.textAlign = Paint.Align.RIGHT
+            paint.color = col
+            paint.isFakeBoldText = true
+            canvas.drawText(value, bx + bw - h * 0.02f, rect.centerY() + h * 0.007f, paint)
+            paint.isFakeBoldText = false
+            y += h * 0.072f
+        }
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.018f
+        canvas.drawText("Touchez l'ecran pour fermer", w / 2f, h * 0.9f, paint)
+    }
+
+    private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(240, 8, 10, 18)
         canvas.drawRect(0f, 0f, w, h, paint)
         paint.textAlign = Paint.Align.LEFT
         paint.color = Color.rgb(255, 225, 140)
-        paint.textSize = h * 0.028f
         paint.isFakeBoldText = true
-        canvas.drawText("COMMENT JOUER", w * 0.08f, h * 0.14f, paint)
+        paint.textSize = h * 0.026f
+        canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.1f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
-        paint.textSize = h * 0.019f
+        paint.textSize = h * 0.0175f
         val lines = listOf(
-            "• Touchez une dalle : le heros y va tout seul et la sonde.",
+            "• Touchez une dalle : le heros y va seul et la sonde.",
             "• Une dalle sure affiche le nombre de mines autour.",
-            "• Sonder une mine = -20 PV. Pour eviter ca :",
-            "   APPUI LONG sur une dalle suspecte = drapeau,",
-            "   puis retouchez-la : le heros la DESAMORCE sans risque.",
-            "• Glissez le doigt pour deplacer la carte, ◎ pour recentrer.",
-            "• Boutons - et + pour zoomer.",
+            "• Sonder une mine = -20 PV.",
+            "• APPUI LONG (ou bouton DRAPEAU) = marquer une dalle.",
+            "• Retouchez une dalle marquee : le heros la DESAMORCE",
+            "  sans risque... mais le drapeau est CONSOMME.",
+            "• Vous avez autant de drapeaux que de mines : un drapeau",
+            "  gaspille sur une dalle vide = une mine que vous devrez",
+            "  faire exploser plus tard. Reflechissez avec les chiffres !",
             "",
-            "ENIGME (salle en bas a droite) :",
-            "• Placez-vous a cote d'un bloc puis touchez-le pour le pousser.",
-            "• Les 3 blocs sur les 3 dalles -> le coffre s'ouvre.",
-            "• Le coffre contient la CLE -> ouvre la PORTE violette.",
-            "• Derriere la porte : l'etoile verte = victoire !",
+            "• Glissez le doigt pour deplacer la carte, ◎ recentre.",
+            "• Boutons − / + : zoom.  ☰ : menu et inventaire.",
             "",
-            "(Les monstres et le combat arrivent bientot.)",
+            "ENIGME (salle eclairee, en bas a droite) :",
+            "• Placez-vous a cote d'un bloc, touchez-le pour le pousser.",
+            "• 3 blocs sur les 3 dalles -> le coffre s'ouvre.",
+            "• Le coffre donne la CLE (+5 drapeaux bonus).",
+            "• La cle ouvre la PORTE violette -> etoile verte = victoire.",
+            "",
+            "(Monstres et combat : bientot.)",
             "",
             "Touchez l'ecran pour fermer."
         )
-        var y = h * 0.2f
+        var y = h * 0.15f
         for (line in lines) {
-            canvas.drawText(line, w * 0.08f, y, paint)
-            y += h * 0.032f
+            canvas.drawText(line, w * 0.07f, y, paint)
+            y += h * 0.031f
         }
     }
 
@@ -676,28 +983,46 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.argb(215, 0, 0, 0)
         canvas.drawRect(0f, 0f, w, h, paint)
         paint.textAlign = Paint.Align.CENTER
-        paint.textSize = h * 0.055f
         paint.isFakeBoldText = true
+        paint.textSize = h * 0.055f
         paint.color = if (victory) Color.rgb(80, 225, 120) else Color.rgb(235, 65, 60)
         canvas.drawText(if (victory) "VICTOIRE !" else "GAME OVER", w / 2f, h * 0.42f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
-        paint.textSize = h * 0.024f
-        canvas.drawText("Mines desamorcees : $disarmed", w / 2f, h * 0.48f, paint)
-        canvas.drawText("Touchez l'ecran pour rejouer", w / 2f, h * 0.53f, paint)
+        paint.textSize = h * 0.023f
+        canvas.drawText("$playerName  -  ${diffName(difficulty)}", w / 2f, h * 0.47f, paint)
+        canvas.drawText("Mines desamorcees : $disarmed", w / 2f, h * 0.51f, paint)
+        canvas.drawText("Touchez l'ecran pour revenir au menu", w / 2f, h * 0.56f, paint)
     }
 
     // ============================================================ TACTILE
 
+    private fun askName() {
+        val et = EditText(context)
+        et.setText(playerName)
+        et.inputType = InputType.TYPE_CLASS_TEXT
+        AlertDialog.Builder(context)
+            .setTitle("Nom du heros")
+            .setView(et)
+            .setPositiveButton("OK") { _, _ ->
+                val n = et.text.toString().trim()
+                playerName = if (n.isEmpty()) "Heros" else n.take(14)
+                prefs.edit().putString("name", playerName).apply()
+                invalidate()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = e.x; downY = e.y
-                lastX = e.x; lastY = e.y
+                downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
                 downTime = System.currentTimeMillis()
                 dragging = false
             }
             MotionEvent.ACTION_MOVE -> {
+                if (state != PLAYING || showMenu || showInv || showHelp) return true
                 val dx = e.x - lastX
                 val dy = e.y - lastY
                 if (!dragging && hypot(e.x - downX, e.y - downY) > tile * 0.35f) dragging = true
@@ -709,31 +1034,66 @@ class GameView(context: Context) : View(context) {
                 }
                 lastX = e.x; lastY = e.y
             }
-            MotionEvent.ACTION_UP -> {
-                if (showHelp) { showHelp = false; return true }
-                if (gameOver || victory) { newGame(); return true }
-                if (dragging) return true
-                val longPress = System.currentTimeMillis() - downTime > 400
+            MotionEvent.ACTION_UP -> return handleUp(e)
+        }
+        return true
+    }
 
-                if (btnFlag.contains(e.x, e.y)) {
-                    flagMode = !flagMode
-                    showMsg(if (flagMode) "Mode drapeau : touchez une dalle pour la marquer." else "Mode normal.")
-                    return true
+    private fun handleUp(e: MotionEvent): Boolean {
+        if (showHelp) { showHelp = false; return true }
+        if (showInv) { showInv = false; return true }
+
+        if (state == TITLE) {
+            when {
+                tName.contains(e.x, e.y) -> askName()
+                tGod.contains(e.x, e.y) -> {
+                    godMode = !godMode
+                    prefs.edit().putBoolean("god", godMode).apply()
                 }
-                if (btnZoomOut.contains(e.x, e.y)) { tile = (tile * 0.82f).coerceAtLeast(34f); clampCam(); return true }
-                if (btnZoomIn.contains(e.x, e.y)) { tile = (tile * 1.22f).coerceAtMost(240f); clampCam(); return true }
-                if (btnCenter.contains(e.x, e.y)) { following = true; return true }
-                if (btnRestart.contains(e.x, e.y)) { newGame(); return true }
-                if (btnHelp.contains(e.x, e.y)) { showHelp = true; return true }
-
-                if (e.y in boardTop..boardBottom) {
-                    val gx = floor(camX + (e.x - width / 2f) / tile).toInt()
-                    val gy = floor(camY + (e.y - (boardTop + boardBottom) / 2f) / tile).toInt()
-                    if (!world.inside(gx, gy)) return true
-                    following = true
-                    if (flagMode || longPress) onLongPress(gx, gy) else onTap(gx, gy)
+                tNew.contains(e.x, e.y) -> newGame()
+                tCont.contains(e.x, e.y) -> if (hasSave()) loadGame()
+                tHelp.contains(e.x, e.y) -> showHelp = true
+                else -> for (k in 0..2) if (tDiff[k].contains(e.x, e.y)) {
+                    difficulty = k
+                    prefs.edit().putInt("diff", k).apply()
                 }
             }
+            return true
+        }
+
+        if (showMenu) {
+            when {
+                mResume.contains(e.x, e.y) -> showMenu = false
+                mInv.contains(e.x, e.y) -> showInv = true
+                mSave.contains(e.x, e.y) -> { saveGame(); showMenu = false; showMsg("Partie sauvegardee.") }
+                mHelp.contains(e.x, e.y) -> showHelp = true
+                mRestart.contains(e.x, e.y) -> newGame()
+                mQuit.contains(e.x, e.y) -> { saveGame(); showMenu = false; state = TITLE }
+            }
+            return true
+        }
+
+        if (gameOver || victory) { state = TITLE; return true }
+        if (dragging) return true
+
+        val longPress = System.currentTimeMillis() - downTime > 400
+
+        if (btnFlag.contains(e.x, e.y)) {
+            flagMode = !flagMode
+            showMsg(if (flagMode) "Mode drapeau : touchez une dalle pour la marquer." else "Mode normal.")
+            return true
+        }
+        if (btnZoomOut.contains(e.x, e.y)) { tile = (tile * 0.82f).coerceAtLeast(34f); clampCam(); return true }
+        if (btnZoomIn.contains(e.x, e.y)) { tile = (tile * 1.22f).coerceAtMost(240f); clampCam(); return true }
+        if (btnCenter.contains(e.x, e.y)) { following = true; return true }
+        if (btnMenu.contains(e.x, e.y)) { showMenu = true; return true }
+
+        if (e.y in boardTop..boardBottom) {
+            val gx = floor(camX + (e.x - width / 2f) / tile).toInt()
+            val gy = floor(camY + (e.y - (boardTop + boardBottom) / 2f) / tile).toInt()
+            if (!world.inside(gx, gy)) return true
+            following = true
+            if (flagMode || longPress) onFlag(gx, gy) else onTap(gx, gy)
         }
         return true
     }

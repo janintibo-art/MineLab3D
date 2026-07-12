@@ -9,7 +9,11 @@ import kotlin.random.Random
  * pression ouvre le coffre, qui contient la CLE, qui ouvre la PORTE menant a
  * la salle de sortie.
  */
-class World(val size: Int = 41, seed: Long = System.currentTimeMillis()) {
+class World(
+    val size: Int = 41,
+    val seed: Long = System.currentTimeMillis(),
+    val density: Double = 0.13
+) {
 
     companion object {
         const val WALL = 0
@@ -180,7 +184,7 @@ class World(val size: Int = 41, seed: Long = System.currentTimeMillis()) {
             if (inside(x, y)) safe.add(idx(x, y))
         }
 
-        val target = (floors.size * 0.13).toInt()
+        val target = (floors.size * density).toInt()
         var placed = 0
         var guard = 0
         while (placed < target && guard < 60000) {

@@ -1,58 +1,40 @@
-# MineLab 3D 🗡️💣
+# MineLab 2D 🚩💣
 
-Jeu Android natif (Kotlin) : un démineur en 3D, vue à la 3e personne.
-Le sol est un véritable plateau de démineur : des dalles grises à sonder, qui se retournent
-en affichant leur chiffre. Un petit héros armé d'une épée (visible à l'écran) doit désamorcer
-les mines, résoudre les énigmes des portes, combattre les monstres et atteindre le portail vert.
+Jeu Android natif (Kotlin) : un **grand plateau de démineur intégré dans un labyrinthe**, vu de dessus.
+Le petit bonhomme **se déplace tout seul** vers la dalle que vous touchez, en empruntant le plus court
+chemin par les dalles déjà déminées.
 
-## Gameplay
-- **Croix directionnelle** (gauche) : avancer / reculer / tourner.
-- **SONDER** : analyse la dalle surlignée en jaune devant le héros. Si elle est sûre, elle se
-  retourne et affiche au sol son nombre de mines adjacentes (avec cascade automatique quand c'est 0,
-  comme au démineur). Si c'est une mine, un drapeau rouge se plante dessus.
-- **DÉSAMORCER** : neutralise une mine détectée (drapeau) devant vous.
-- **ÉPÉE !** : frappe le monstre en face de vous (portée courte). Tuer un monstre rend 15 PV.
-- Marcher sur une mine non sondée = **BOUM**, -25 PV.
-- Les portes violettes posent une **énigme** : mauvaise réponse = -10 PV.
-- Les dalles non révélées sont en **relief gris**, les dalles révélées sont **plates et claires**
-  avec leur chiffre coloré écrit au sol (1 bleu, 2 vert, 3 rouge...).
-- La **mini-carte** en haut à droite donne une vue d'ensemble.
-- Le labyrinthe, les mines, les salles et les monstres sont **générés aléatoirement** à chaque partie.
+## Règles
+- **Touchez une dalle inconnue** → le héros marche jusqu'à une case voisine sûre, puis la **sonde**.
+  - Si elle est sûre, elle se retourne et affiche son **chiffre** (nombre de mines autour), avec
+    cascade automatique quand c'est 0, comme au démineur classique.
+  - Si c'est une **mine** : BOUM, -20 PV (mais la dalle devient praticable).
+- **Appui long** (ou bouton **DRAPEAU : ON**) → poser / retirer un **drapeau** sur une dalle suspecte.
+- **Touchez une dalle marquée d'un drapeau** → le héros s'y rend et la **désamorce** proprement (0 dégât).
+  C'est la bonne façon d'ouvrir un couloir piégé.
+- **Touchez une dalle déjà révélée** → le héros s'y déplace.
+- Atteignez l'**étoile verte** (la sortie) pour gagner.
+- Boutons du bas : mode drapeau, **−** / **+** pour zoomer, **⟳** pour relancer une partie.
+
+Le labyrinthe (31×31), les salles et les mines sont générés aléatoirement à chaque partie.
+Le combat contre les monstres sera ajouté dans une prochaine version.
 
 ## Compiler l'APK avec GitHub Actions
-1. Poussez ce projet sur GitHub (voir commandes Termux ci-dessous).
-2. Le workflow `.github/workflows/build.yml` se lance automatiquement à chaque push.
-3. Sur GitHub : onglet **Actions** → cliquez sur le dernier run → section **Artifacts**
-   → téléchargez **MineLab3D-debug** (un zip contenant `app-debug.apk`).
-4. Installez l'APK sur votre téléphone (autorisez les "sources inconnues").
+1. Poussez ce projet sur GitHub (commandes Termux ci-dessous).
+2. Le workflow `.github/workflows/build.yml` se lance à chaque push.
+3. Onglet **Actions** → dernier run → section **Artifacts** → téléchargez **MineLab3D-debug**
+   (zip contenant `app-debug.apk`), puis installez-le sur le téléphone.
 
 ## Commandes Termux
 ```bash
-pkg update -y
-pkg install -y git gh unzip
-termux-setup-storage        # autoriser l'accès au stockage (une seule fois)
-
-# Dézipper (adaptez le chemin du zip)
-unzip ~/storage/downloads/MineLab3D.zip -d ~/MineLab3D
+cd ~
+unzip -o ~/storage/downloads/MineLab3D.zip -d ~/tmpml
+cp -r ~/tmpml/MineLab3D/. ~/MineLab3D/
+rm -rf ~/tmpml
 cd ~/MineLab3D
-
-# Dépôt git
-git init
-git add .
-git commit -m "MineLab 3D - premier commit"
-
-# Connexion GitHub puis création + envoi du dépôt
-gh auth login               # GitHub.com → HTTPS → Login with a web browser
-gh repo create MineLab3D --public --source=. --remote=origin --push
-```
-
-### Sans `gh` (méthode manuelle)
-Créez un dépôt vide sur github.com, générez un token (Settings → Developer settings →
-Personal access tokens, portée `repo`), puis :
-```bash
-git remote add origin https://github.com/VOTRE_PSEUDO/MineLab3D.git
-git branch -M main
-git push -u origin main     # utilisateur = pseudo, mot de passe = le token
+git add -A
+git commit -m "Version 2D : plateau de demineur dans le labyrinthe"
+git push
 ```
 
 ## Structure
@@ -64,9 +46,9 @@ MineLab3D/
     ├── build.gradle
     └── src/main/
         ├── AndroidManifest.xml
-        ├── res/ (icône, strings)
+        ├── res/
         └── java/com/minelab/game/
-            ├── MainActivity.kt      # Activité plein écran
-            ├── World.kt             # Génération labyrinthe, mines, salles, énigmes
-            └── GameView.kt          # Moteur 3D raycasting, combat, HUD tactile
+            ├── MainActivity.kt      # Activité plein écran (portrait)
+            ├── World.kt             # Labyrinthe, mines, cascade, recherche de chemin (BFS)
+            └── GameView.kt          # Plateau 2D, héros auto-déplacé, HUD tactile
 ```

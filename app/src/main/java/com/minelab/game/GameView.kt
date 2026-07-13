@@ -37,6 +37,13 @@ class GameView(context: Context) : View(context) {
     private var godMode = false
 
     private val prefs = context.getSharedPreferences("minelab", Context.MODE_PRIVATE)
+    private val audio = Audio(context)
+    private var showSettings = false
+    private val setRows = Array(Audio.ZONES.size) { RectF() }
+    private val setMusic = RectF()
+    private val setSfx = RectF()
+    private val setVolDown = RectF()
+    private val setVolUp = RectF()
 
     private var world = World()
     private var hx = 1
@@ -177,6 +184,7 @@ class GameView(context: Context) : View(context) {
     private val btnMenu = RectF()
     private val btnSword = RectF()
     private val mMap = RectF()
+    private val mSet = RectF()
     private var showMap = false
 
     private val tName = RectF()
@@ -185,6 +193,7 @@ class GameView(context: Context) : View(context) {
     private val tNew = RectF()
     private val tCont = RectF()
     private val tHelp = RectF()
+    private val tSet = RectF()
 
     private val mResume = RectF()
     private val mInv = RectF()
@@ -217,6 +226,48 @@ class GameView(context: Context) : View(context) {
         playerName = prefs.getString("name", "Heros") ?: "Heros"
         difficulty = prefs.getInt("diff", 1)
         godMode = prefs.getBoolean("god", false)
+        loadAudioPrefs()
+    }
+
+    private fun loadAudioPrefs() {
+        for (z in Audio.ZONES.indices) {
+            audio.zoneTrack[z] = prefs.getInt("z$z", z % Audio.TRACKS.size)
+        }
+        audio.musicOn = prefs.getBoolean("mus", true)
+        audio.sfxOn = prefs.getBoolean("sfx", true)
+        audio.setVolume(prefs.getFloat("vol", 0.55f))
+    }
+
+    private fun saveAudioPrefs() {
+        val e = prefs.edit()
+        for (z in Audio.ZONES.indices) e.putInt("z$z", audio.zoneTrack[z])
+        e.putBoolean("mus", audio.musicOn)
+        e.putBoolean("sfx", audio.sfxOn)
+        e.putFloat("vol", audio.musicVol)
+        e.apply()
+        audio.refresh()
+    }
+
+    // Cycle de vie (appele par MainActivity)
+    fun onPauseAudio() = audio.pause()
+    fun onResumeAudio() = audio.resume()
+    fun onDestroyAudio() = audio.release()
+
+    /** La zone musicale courante. */
+    private fun currentZone(): Int {
+        if (state == TITLE) return 0
+        if (mobs.any { it.hp > 0 }) return 7
+        return when {
+            hy >= world.uy0 -> when {
+                hx < 12 -> 4
+                hx <= 20 -> 5
+                hx <= 34 -> 6
+                else -> 7
+            }
+            hx <= world.hallW -> 1
+            hx < world.hallW + 12 -> 2
+            else -> 3
+        }
     }
 
     // ============================================================ DIFFICULTE
@@ -441,15 +492,18 @@ class GameView(context: Context) : View(context) {
         tNew.set(cx0, hf * 0.63f, cx0 + cw, hf * 0.63f + rh * 1.15f)
         tCont.set(cx0, hf * 0.72f, cx0 + cw, hf * 0.72f + rh * 1.15f)
         tHelp.set(cx0, hf * 0.81f, cx0 + cw, hf * 0.81f + rh * 1.15f)
+        val sq = hf * 0.05f
+        tSet.set(wf - sq * 1.5f, hf * 0.035f, wf - sq * 0.4f, hf * 0.035f + sq * 1.1f)
 
         val mw = wf * 0.74f
         val mx = (wf - mw) / 2f
-        var my = hf * 0.20f
-        val mh = hf * 0.062f
-        val mg = hf * 0.012f
+        var my = hf * 0.205f
+        val mh = hf * 0.057f
+        val mg = hf * 0.011f
         mResume.set(mx, my, mx + mw, my + mh); my += mh + mg
         mInv.set(mx, my, mx + mw, my + mh); my += mh + mg
         mMap.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mSet.set(mx, my, mx + mw, my + mh); my += mh + mg
         mSave.set(mx, my, mx + mw, my + mh); my += mh + mg
         mReset.set(mx, my, mx + mw, my + mh); my += mh + mg
         mHelp.set(mx, my, mx + mw, my + mh); my += mh + mg
@@ -461,6 +515,7 @@ class GameView(context: Context) : View(context) {
 
     private fun update(dt: Float) {
         time += dt
+        audio.setZone(currentZone())
         msgTimer -= dt
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
         damageT = (damageT - dt).coerceAtLeast(0f)
@@ -488,12 +543,13 @@ class GameView(context: Context) : View(context) {
                 } else {
                     simonFlash = world.simonSeq[simonPos]
                     simonFlashT = 0.42f
+                    audio.play("simon${simonFlash}")
                     simonTimer = 0.68f
                 }
             }
         }
 
-        if (gameOver || victory || showMenu || showInv || showHelp || showMap || miniPlate >= 0) return
+        if (gameOver || victory || showMenu || showInv || showHelp || showMap || showSettings || miniPlate >= 0) return
 
         updateMobs(dt)
 
@@ -629,6 +685,7 @@ class GameView(context: Context) : View(context) {
         if (attackCd > 0f) return
         attackCd = 0.45f
         attackAnim = 1f
+        audio.play("sword")
         var hit = false
         for (m in mobs) {
             if (m.hp <= 0) continue
@@ -636,6 +693,7 @@ class GameView(context: Context) : View(context) {
                 m.hp -= 40
                 m.hitT = 0.28f
                 hit = true
+                audio.play("hit")
                 if (m.hp <= 0) showMsg("Monstre terrasse !")
             }
         }
@@ -650,6 +708,7 @@ class GameView(context: Context) : View(context) {
         if (i == world.lighter && !world.lighterTaken) {
             world.lighterTaken = true
             lighterOwned = true
+            audio.play("pickup")
             showMsg("Vous ramassez un BRIQUET ! Allumez les 4 torches de la salle.")
             saveGame()
         }
@@ -657,6 +716,7 @@ class GameView(context: Context) : View(context) {
         if (i in world.hearts && i in world.revealed) {
             world.hearts.remove(i)
             heartsGot++
+            audio.play("heart")
             hp = (hp + 20).coerceAtMost(100)
             showMsg("Un coeur ! +20 PV")
             saveGame()
@@ -685,16 +745,19 @@ class GameView(context: Context) : View(context) {
                 if (i == world.simonTiles[k]) {
                     simonFlash = k
                     simonFlashT = 0.3f
+                    audio.play("simon$k")
                     if (k == world.simonSeq[simonInput]) {
                         simonInput++
                         if (simonInput >= world.simonSeq.size) {
                             simonState = 0
                             world.spawnAfterSimon()
+                            audio.play("win")
                             showMsg("L'enigme est resolue ! Un coffre et deux portes apparaissent !")
                             saveGame()
                         }
                     } else {
                         simonState = 0
+                        audio.play("error")
                         hurt(5, "Mauvaise couleur ! Retouchez le socle pour reecouter.")
                     }
                 }
@@ -726,6 +789,7 @@ class GameView(context: Context) : View(context) {
         if (hp <= 0) {
             hp = 0
             gameOver = true
+            audio.play("lose")
             prefs.edit().putBoolean("has", false).apply()
         }
     }
@@ -738,6 +802,7 @@ class GameView(context: Context) : View(context) {
             world.exploded.add(i)
             world.revealed.add(i)
             boomFlash = 1f
+            audio.play("boom")
             hurt(20, "BOUM ! -20 PV. Marquez d'abord (appui long) puis desamorcez !")
         } else {
             world.revealCascade(x, y)
@@ -754,6 +819,7 @@ class GameView(context: Context) : View(context) {
             world.defused.add(i)
             world.revealed.add(i)
             disarmed++
+            audio.play("disarm")
             showMsg("Mine desamorcee ! Drapeaux restants : $flagsLeft")
         } else {
             world.revealCascade(x, y)
@@ -767,6 +833,8 @@ class GameView(context: Context) : View(context) {
             return
         }
         if (world.chestOpen) { showMsg("Le coffre est vide."); return }
+        audio.play("chest")
+        audio.play("key")
         world.chestOpen = true
         world.hasKey = true
         flagsLeft += 5
@@ -776,6 +844,7 @@ class GameView(context: Context) : View(context) {
 
     private fun openChest2() {
         if (world.chest2Open) { showMsg("Ce coffre est vide."); return }
+        audio.play("chest")
         world.chest2Open = true
         joyOwned = true
         showMsg("Un JOYSTICK ! Activez-le depuis l'inventaire (menu ☰).")
@@ -783,6 +852,7 @@ class GameView(context: Context) : View(context) {
 
     private fun openChest3() {
         if (world.chest3Open) { showMsg("Le coffre-fort est vide."); return }
+        audio.play("chest")
         world.chest3Open = true
         swordOwned = true
         energyCount++
@@ -792,6 +862,7 @@ class GameView(context: Context) : View(context) {
 
     private fun openDoor() {
         if (!world.hasKey) { showMsg("Porte verrouillee. Il faut la cle du coffre."); return }
+        audio.play("door")
         world.grid[world.door] = World.FLOOR
         world.revealed.add(world.door)
         world.revealRoomB()
@@ -810,6 +881,7 @@ class GameView(context: Context) : View(context) {
         if (!lighterOwned) { showMsg("Il vous faut un briquet ! Il est au centre de la salle."); return }
         if (i in world.torchLit) { showMsg("Cette torche brule deja."); return }
         world.torchLit.add(i)
+        audio.play("torch")
         val n = world.torchLit.size
         if (n >= 4 && !world.sokoban2Spawned) {
             world.spawnSokoban2()
@@ -851,6 +923,7 @@ class GameView(context: Context) : View(context) {
         }
         if (c in miniFlag) return
         if (c in miniLayout) {
+            audio.play("boom")
             hurt(10, "BOUM ! Le mini-demineur se reinitialise. -10 PV")
             miniRev.clear(); miniFlag.clear()
             if (gameOver) miniPlate = -1
@@ -903,6 +976,7 @@ class GameView(context: Context) : View(context) {
         world.revealed.add(world.idx(tx, ty))
         world.revealed.add(world.idx(bxx, byy))
         clearPendings()
+        audio.play("push")
         path = listOf(Pair(bxx, byy))
         pathStep = 0
 
@@ -1016,6 +1090,7 @@ class GameView(context: Context) : View(context) {
         } else {
             if (flagsLeft <= 0) { showMsg("Plus de drapeaux ! Retirez-en un ailleurs."); return }
             world.flagged.add(i); flagsLeft--
+            audio.play("flag")
             showMsg("Drapeau pose ($flagsLeft). Retouchez la dalle pour desamorcer.")
         }
         saveGame()
@@ -1060,6 +1135,7 @@ class GameView(context: Context) : View(context) {
             canvas.drawRect(0f, 0f, w, h, paint)
         }
         if (showMap) drawMap(canvas, w, h)
+        if (showSettings) drawSettings(canvas, w, h)
         if (miniPlate >= 0) drawMini(canvas, w, h)
         if (showMenu) drawMenu(canvas, w, h)
         if (showInv) drawInventory(canvas, w, h)
@@ -1178,6 +1254,7 @@ class GameView(context: Context) : View(context) {
         drawPanelBtn(canvas, tNew, "NOUVELLE PARTIE", false)
         drawPanelBtn(canvas, tCont, if (hasSave()) "CONTINUER" else "AUCUNE SAUVEGARDE", false, hasSave())
         drawPanelBtn(canvas, tHelp, "COMMENT JOUER ?", false)
+        drawPanelBtn(canvas, tSet, "♪", false)
 
         // --- Le heros fait les cent pas sur une dalle de pierre
         val fh = h * 0.09f
@@ -1879,6 +1956,7 @@ class GameView(context: Context) : View(context) {
         drawPanelBtn(canvas, mResume, "REPRENDRE", false)
         drawPanelBtn(canvas, mInv, "INVENTAIRE", false)
         drawPanelBtn(canvas, mMap, "CARTE DU DONJON", false)
+        drawPanelBtn(canvas, mSet, "REGLAGES / MUSIQUE", false)
         drawPanelBtn(canvas, mSave, "SAUVEGARDER", false)
         drawPanelBtn(canvas, mReset, "REINITIALISER LES CAISSES", false)
         drawPanelBtn(canvas, mHelp, "COMMENT JOUER ?", false)
@@ -2081,6 +2159,94 @@ class GameView(context: Context) : View(context) {
         canvas.drawText("Touchez l'ecran pour fermer", w / 2f, h * 0.95f, paint)
     }
 
+    /** Ecran de reglages : une musique par salle, volume, bruitages. */
+    private fun drawSettings(canvas: Canvas, w: Float, h: Float) {
+        drawStoneBg(canvas, w, h, 210)
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.03f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.006f
+        paint.color = Color.rgb(60, 40, 12)
+        canvas.drawText("REGLAGES", w / 2f, h * 0.065f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("REGLAGES", w / 2f, h * 0.065f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(180, 165, 130)
+        paint.textSize = h * 0.015f
+        canvas.drawText("Touchez une salle pour changer sa musique", w / 2f, h * 0.093f, paint)
+
+        val bw = w * 0.9f
+        val bx = (w - bw) / 2f
+        val rh = h * 0.052f
+        var y = h * 0.115f
+
+        // Musique ON/OFF + volume
+        setMusic.set(bx, y, bx + bw * 0.52f, y + rh)
+        drawFrame(canvas, setMusic,
+            if (audio.musicOn) Color.rgb(48, 62, 44) else Color.rgb(46, 34, 34),
+            if (audio.musicOn) Color.rgb(120, 200, 120) else Color.rgb(180, 90, 80))
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.WHITE
+        paint.isFakeBoldText = true
+        paint.textSize = rh * 0.34f
+        canvas.drawText(if (audio.musicOn) "MUSIQUE : ON" else "MUSIQUE : OFF", setMusic.centerX(), setMusic.centerY() + rh * 0.12f, paint)
+
+        val vw = bw * 0.44f
+        setVolDown.set(bx + bw - vw, y, bx + bw - vw + vw * 0.28f, y + rh)
+        setVolUp.set(bx + bw - vw * 0.28f, y, bx + bw, y + rh)
+        drawFrame(canvas, setVolDown, Color.rgb(40, 38, 48), Color.rgb(150, 122, 66))
+        drawFrame(canvas, setVolUp, Color.rgb(40, 38, 48), Color.rgb(150, 122, 66))
+        canvas.drawText("−", setVolDown.centerX(), setVolDown.centerY() + rh * 0.14f, paint)
+        canvas.drawText("+", setVolUp.centerX(), setVolUp.centerY() + rh * 0.14f, paint)
+        paint.color = Color.rgb(255, 210, 100)
+        canvas.drawText(
+            "VOL ${(audio.musicVol * 100).toInt()}%",
+            (setVolDown.right + setVolUp.left) / 2f, setVolDown.centerY() + rh * 0.12f, paint
+        )
+        y += rh + h * 0.01f
+
+        setSfx.set(bx, y, bx + bw, y + rh)
+        drawFrame(canvas, setSfx,
+            if (audio.sfxOn) Color.rgb(48, 62, 44) else Color.rgb(46, 34, 34),
+            if (audio.sfxOn) Color.rgb(120, 200, 120) else Color.rgb(180, 90, 80))
+        paint.color = Color.WHITE
+        canvas.drawText(if (audio.sfxOn) "BRUITAGES : ON" else "BRUITAGES : OFF", setSfx.centerX(), setSfx.centerY() + rh * 0.12f, paint)
+        paint.isFakeBoldText = false
+        y += rh + h * 0.018f
+
+        // Une ligne par salle
+        val zone = currentZone()
+        for (z in Audio.ZONES.indices) {
+            setRows[z].set(bx, y, bx + bw, y + rh)
+            val here = z == zone
+            drawFrame(canvas, setRows[z],
+                if (here) Color.rgb(58, 50, 34) else Color.rgb(34, 32, 42),
+                if (here) Color.rgb(255, 205, 90) else Color.rgb(140, 114, 62))
+            paint.textAlign = Paint.Align.LEFT
+            paint.color = if (here) Color.rgb(255, 225, 150) else Color.rgb(226, 218, 200)
+            paint.textSize = rh * 0.32f
+            canvas.drawText(Audio.ZONES[z], bx + rh * 0.35f, setRows[z].centerY() + rh * 0.11f, paint)
+            paint.textAlign = Paint.Align.RIGHT
+            paint.isFakeBoldText = true
+            val t = audio.zoneTrack[z]
+            paint.color = if (t == Audio.NONE) Color.rgb(140, 140, 150) else Color.rgb(120, 200, 240)
+            canvas.drawText(
+                if (t == Audio.NONE) "aucune" else "musique ${t + 1}  ▶",
+                bx + bw - rh * 0.35f, setRows[z].centerY() + rh * 0.11f, paint
+            )
+            paint.isFakeBoldText = false
+            y += rh + h * 0.009f
+        }
+
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.017f
+        canvas.drawText("Touchez en bas de l'ecran pour fermer", w / 2f, h * 0.965f, paint)
+        drawEmbers(canvas, w, h)
+    }
+
     private fun drawEnd(canvas: Canvas, w: Float, h: Float) {
         drawStoneBg(canvas, w, h, 215)
         if (victory) {
@@ -2128,7 +2294,7 @@ class GameView(context: Context) : View(context) {
         val am = e.actionMasked
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&
-            !showMenu && !showInv && !showHelp && !showMap && !gameOver && !victory
+            !showMenu && !showInv && !showHelp && !showMap && !showSettings && !gameOver && !victory
         ) {
             when (am) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -2159,7 +2325,7 @@ class GameView(context: Context) : View(context) {
                 dragging = false
             }
             MotionEvent.ACTION_MOVE -> {
-                if (state != PLAYING || showMenu || showInv || showHelp || showMap || miniPlate >= 0) return true
+                if (state != PLAYING || showMenu || showInv || showHelp || showMap || showSettings || miniPlate >= 0) return true
                 val dx = e.x - lastX
                 val dy = e.y - lastY
                 if (!dragging && hypot(e.x - downX, e.y - downY) > tile * 0.35f) dragging = true
@@ -2188,6 +2354,29 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun handleUp(e: MotionEvent): Boolean {
+        if (showSettings) {
+            when {
+                setMusic.contains(e.x, e.y) -> { audio.musicOn = !audio.musicOn; saveAudioPrefs() }
+                setSfx.contains(e.x, e.y) -> { audio.sfxOn = !audio.sfxOn; saveAudioPrefs(); audio.play("flag") }
+                setVolDown.contains(e.x, e.y) -> { audio.setVolume(audio.musicVol - 0.1f); saveAudioPrefs() }
+                setVolUp.contains(e.x, e.y) -> { audio.setVolume(audio.musicVol + 0.1f); saveAudioPrefs() }
+                else -> {
+                    var hit = false
+                    for (z in Audio.ZONES.indices) {
+                        if (setRows[z].contains(e.x, e.y)) {
+                            hit = true
+                            var t = audio.zoneTrack[z] + 1
+                            if (t >= Audio.TRACKS.size) t = Audio.NONE
+                            audio.zoneTrack[z] = t
+                            saveAudioPrefs()
+                            audio.play("flag")
+                        }
+                    }
+                    if (!hit) showSettings = false
+                }
+            }
+            return true
+        }
         if (showMap) { showMap = false; return true }
         if (showHelp) { showHelp = false; return true }
         if (showInv) {
@@ -2223,6 +2412,7 @@ class GameView(context: Context) : View(context) {
                 tNew.contains(e.x, e.y) -> newGame()
                 tCont.contains(e.x, e.y) -> if (hasSave()) loadGame()
                 tHelp.contains(e.x, e.y) -> showHelp = true
+                tSet.contains(e.x, e.y) -> showSettings = true
                 else -> for (k in 0..2) if (tDiff[k].contains(e.x, e.y)) {
                     difficulty = k
                     prefs.edit().putInt("diff", k).apply()
@@ -2236,6 +2426,7 @@ class GameView(context: Context) : View(context) {
                 mResume.contains(e.x, e.y) -> showMenu = false
                 mInv.contains(e.x, e.y) -> showInv = true
                 mMap.contains(e.x, e.y) -> { showMap = true; showMenu = false }
+                mSet.contains(e.x, e.y) -> { showSettings = true; showMenu = false }
                 mSave.contains(e.x, e.y) -> { saveGame(); showMenu = false; showMsg("Partie sauvegardee.") }
                 mReset.contains(e.x, e.y) -> {
                     world.resetPuzzle(); saveGame(); showMenu = false

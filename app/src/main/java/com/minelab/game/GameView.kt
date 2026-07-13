@@ -183,6 +183,7 @@ class GameView(context: Context) : View(context) {
     private val btnCenter = RectF()
     private val btnMenu = RectF()
     private val btnSword = RectF()
+    private val btnReset = RectF()
     private val mMap = RectF()
     private val mSet = RectF()
     private var showMap = false
@@ -474,6 +475,7 @@ class GameView(context: Context) : View(context) {
         btnZoomIn.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnSword.set(x - bh, y0, x, y0 + bh); x -= bh + gap
+        btnReset.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
 
         joyRadius = min(wf, hf) * 0.11f
@@ -739,30 +741,55 @@ class GameView(context: Context) : View(context) {
             prefs.edit().putBoolean("has", false).apply()
             return
         }
-        // Saisie de l'enigme des couleurs
+        // Saisie de l'enigme des couleurs (en arrivant sur une dalle)
         if (simonState == 2) {
-            for (k in 0..3) {
-                if (i == world.simonTiles[k]) {
-                    simonFlash = k
-                    simonFlashT = 0.3f
-                    audio.play("simon$k")
-                    if (k == world.simonSeq[simonInput]) {
-                        simonInput++
-                        if (simonInput >= world.simonSeq.size) {
-                            simonState = 0
-                            world.spawnAfterSimon()
-                            audio.play("win")
-                            showMsg("L'enigme est resolue ! Un coffre et deux portes apparaissent !")
-                            saveGame()
-                        }
-                    } else {
-                        simonState = 0
-                        audio.play("error")
-                        hurt(5, "Mauvaise couleur ! Retouchez le socle pour reecouter.")
-                    }
-                }
-            }
+            for (k in 0..3) if (i == world.simonTiles[k]) simonPress(k)
         }
+    }
+
+    /** Valide une couleur. Marche aussi si le heros est DEJA sur la dalle (couleur repetee). */
+    private fun simonPress(k: Int) {
+        if (simonState != 2 || world.simonSolved) return
+        simonFlash = k
+        simonFlashT = 0.32f
+        audio.play("simon$k")
+        if (k == world.simonSeq[simonInput]) {
+            simonInput++
+            if (simonInput >= world.simonSeq.size) {
+                simonState = 0
+                world.spawnAfterSimon()
+                audio.play("win")
+                showMsg("L'enigme est resolue ! Un coffre-fort et une porte apparaissent !")
+                saveGame()
+            } else {
+                showMsg("Bonne couleur ! ($simonInput/${world.simonSeq.size})")
+            }
+        } else {
+            simonState = 0
+            simonInput = 0
+            audio.play("error")
+            hurt(5, "Mauvaise couleur ! Retouchez le socle pour reecouter.")
+        }
+    }
+
+    /** Le heros est-il dans une salle a caisses ? */
+    private fun inSokobanRoom(): Boolean {
+        if (world.inTorchRoom(hx, hy)) return world.sokoban2Spawned
+        return hy <= 11 && hx > world.hallW
+    }
+
+    private fun resetCurrentSokoban() {
+        if (world.inTorchRoom(hx, hy)) {
+            world.resetSokoban2()
+            showMsg("Les 7 caisses sont revenues a leur place de depart.")
+        } else {
+            world.resetSokoban1()
+            showMsg("Les blocs sont revenus a leur place de depart.")
+        }
+        clearPendings()
+        path = emptyList(); pathStep = 0
+        audio.play("push")
+        saveGame()
     }
 
     private fun clampCam() {
@@ -885,7 +912,7 @@ class GameView(context: Context) : View(context) {
         val n = world.torchLit.size
         if (n >= 4 && !world.sokoban2Spawned) {
             world.spawnSokoban2()
-            showMsg("Les 4 torches brulent ! Des caisses tombent du plafond...")
+            showMsg("Les 4 torches brulent ! 7 caisses tombent du plafond...")
         } else {
             showMsg("Torche allumee ($n/4).")
         }
@@ -997,7 +1024,7 @@ class GameView(context: Context) : View(context) {
             val c2 = world.targets2.count { it in world.blocks }
             showMsg(
                 when {
-                    world.sokoban2Spawned -> "Caisses rangees : $c2 / 5"
+                    world.sokoban2Spawned -> "Caisses rangees : $c2 / 7"
                     world.hasKey -> "Caisses rangees : $c / 4"
                     else -> "Blocs en place : $d / 3"
                 }
@@ -1010,6 +1037,17 @@ class GameView(context: Context) : View(context) {
     private fun onTap(gx: Int, gy: Int) {
         if (gameOver || victory) return
         val i = world.idx(gx, gy)
+
+        // Enigme des couleurs : si on retouche la dalle sur laquelle on se trouve
+        // deja, la couleur est validee une nouvelle fois (utile si elle se repete).
+        if (simonState == 2) {
+            for (k in 0..3) {
+                if (i == world.simonTiles[k] && gx == hx && gy == hy) {
+                    simonPress(k)
+                    return
+                }
+            }
+        }
 
         // Dalle de pression recouverte : ouvrir le mini-demineur
         if (i in world.plates && i !in world.plateSolved && i !in world.blocks) {
@@ -1872,7 +1910,7 @@ class GameView(context: Context) : View(context) {
         val obj = when {
             world.door3Open -> "Objectif : rejoindre l'ETOILE !"
             world.mobsSpawned && !world.mobsDead -> "Objectif : battre les 2 monstres (bouton epee) !"
-            world.sokoban2Spawned -> "Objectif : ranger les 5 caisses dans l'alcove ($c2/5)."
+            world.sokoban2Spawned -> "Objectif : ranger les 7 caisses ($c2/7). Attention a l'ordre !"
             world.lighterTaken -> "Objectif : allumer les 4 torches (${world.torchLit.size}/4)."
             world.grid[world.door1] == World.FLOOR -> "Objectif : trouver le briquet au centre de la salle."
             underground && world.simonSolved -> "Objectif : le coffre-fort, puis la porte de droite."
@@ -1900,6 +1938,7 @@ class GameView(context: Context) : View(context) {
             canvas.drawRoundRect(btnSword, btnSword.height() * 0.28f, btnSword.height() * 0.28f, paint)
             drawSprite(canvas, sSwordV, btnSword.centerX(), btnSword.centerY(), btnSword.height() * 0.82f)
         }
+        if (inSokobanRoom()) drawBtn(canvas, btnReset, "↺", false)
         drawBtn(canvas, btnZoomOut, "−", false)
         drawBtn(canvas, btnZoomIn, "+", false)
         drawBtn(canvas, btnCenter, "◎", false)
@@ -2080,7 +2119,9 @@ class GameView(context: Context) : View(context) {
             "",
             "5) SALLE DES TORCHES",
             "• Ramassez le BRIQUET au centre, allumez les 4 torches.",
-            "• Des caisses tombent : sokoban 2 (5 caisses, plus dur).",
+            "• 7 caisses tombent : sokoban 2. PIEGE : l'emplacement tout",
+            "  a droite doit etre rempli EN PREMIER, sinon il devient",
+            "  inatteignable ! Bouton ↺ pour tout recommencer.",
             "• Resolu -> une porte apparait + 2 MONSTRES.",
             "• Equipez l'epee et utilisez le bouton epee pour frapper !",
             "• Monstres vaincus -> la porte s'ouvre -> ETOILE = victoire.",
@@ -2429,8 +2470,8 @@ class GameView(context: Context) : View(context) {
                 mSet.contains(e.x, e.y) -> { showSettings = true; showMenu = false }
                 mSave.contains(e.x, e.y) -> { saveGame(); showMenu = false; showMsg("Partie sauvegardee.") }
                 mReset.contains(e.x, e.y) -> {
-                    world.resetPuzzle(); saveGame(); showMenu = false
-                    showMsg("Caisses remises a leur place de depart.")
+                    showMenu = false
+                    resetCurrentSokoban()
                 }
                 mHelp.contains(e.x, e.y) -> showHelp = true
                 mRestart.contains(e.x, e.y) -> newGame()
@@ -2450,6 +2491,7 @@ class GameView(context: Context) : View(context) {
             return true
         }
         if (swordOwned && btnSword.contains(e.x, e.y)) { doAttack(); return true }
+        if (inSokobanRoom() && btnReset.contains(e.x, e.y)) { resetCurrentSokoban(); return true }
         if (btnZoomOut.contains(e.x, e.y)) { tile = (tile * 0.82f).coerceAtLeast(34f); clampCam(); return true }
         if (btnZoomIn.contains(e.x, e.y)) { tile = (tile * 1.22f).coerceAtMost(240f); clampCam(); return true }
         if (btnCenter.contains(e.x, e.y)) { following = true; return true }

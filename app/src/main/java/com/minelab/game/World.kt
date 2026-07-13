@@ -52,6 +52,7 @@ class World(
 
     val blocks = HashSet<Int>()
     val blocksInit = HashSet<Int>()
+    private val blocksInit0 = HashSet<Int>()
     val plates = HashSet<Int>()
     val plateSolved = HashSet<Int>()
     val targets = HashSet<Int>()        // sokoban 1
@@ -126,6 +127,7 @@ class World(
         placeHearts()
         totalMines = mines.size
         blocksInit.addAll(blocks)
+        blocksInit0.addAll(blocks)
         revealCascade(startX, startY)
     }
 
@@ -218,7 +220,13 @@ class World(
         for (x in tx0..tx0 + 12) {
             if (x != tx0 + 6 && x != tx0 + 9) grid[idx(x, ty0 + 1)] = WALL
         }
+        // 5 emplacements au fond de l'alcove
         for (k in 1..5) targets2.add(idx(tx0 + k, ty0))
+        // 1 emplacement DEVANT l'alcove (bouche du puits)
+        targets2.add(idx(tx0 + 6, ty0))
+        // 1 emplacement TOUT A DROITE : le piege !
+        // (si l'alcove est remplie avant, on ne peut plus pousser vers la droite)
+        targets2.add(idx(tx0 + 10, ty0))
 
         lighter = idx(tx0 + 6, ty0 + 5)
         torches[0] = idx(tx0 + 1, ty0 + 2)
@@ -226,11 +234,14 @@ class World(
         torches[2] = idx(tx0 + 1, ty0 + 9)
         torches[3] = idx(tx0 + 11, ty0 + 9)
 
+        // 4 caisses dans le puits + 3 caisses laterales a ramener dans le puits
         crates2.add(idx(tx0 + 6, ty0 + 3))
         crates2.add(idx(tx0 + 6, ty0 + 5))
         crates2.add(idx(tx0 + 6, ty0 + 7))
         crates2.add(idx(tx0 + 6, ty0 + 9))
         crates2.add(idx(tx0 + 2, ty0 + 4))
+        crates2.add(idx(tx0 + 2, ty0 + 8))
+        crates2.add(idx(tx0 + 10, ty0 + 6))
 
         mobSpawn[0] = idx(tx0 + 9, ty0 + 7)
         mobSpawn[1] = idx(tx0 + 4, ty0 + 8)
@@ -261,9 +272,12 @@ class World(
 
     /** Les 4 torches sont allumees : les caisses apparaissent. */
     fun spawnSokoban2() {
+        if (sokoban2Spawned) return
         sokoban2Spawned = true
         blocks.addAll(crates2)
         blocksInit.addAll(crates2)
+        revealed.addAll(crates2)
+        revealed.addAll(targets2)
     }
 
     fun spawnDoor3AndMobs() {
@@ -363,11 +377,19 @@ class World(
     fun platesSolved(): Boolean = plates.all { it in blocks && it in plateSolved }
     fun trapSolved(): Boolean = targets.all { it in blocks }
 
-    fun resetPuzzle() {
-        blocks.clear()
-        blocks.addAll(blocksInit)
-        if (!sokoban2Spawned) blocks.removeAll(crates2.toSet())
-        trapOpen = false
+    fun inTorchRoom(x: Int, y: Int) = x in tx0..tx0 + 12 && y in ty0..ty0 + 10
+
+    /** Remet les caisses de la salle des torches a leur place. */
+    fun resetSokoban2() {
+        if (!sokoban2Spawned) return
+        blocks.removeAll(blocks.filter { inTorchRoom(cx(it), cy(it)) }.toSet())
+        blocks.addAll(crates2)
+    }
+
+    /** Remet les blocs de l'etage 0 (salle du coffre + salle de rangement). */
+    fun resetSokoban1() {
+        blocks.removeAll(blocks.filter { cy(it) <= 11 }.toSet())
+        blocks.addAll(blocksInit0)
     }
 
     fun revealCascade(sx: Int, sy: Int) {

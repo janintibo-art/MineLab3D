@@ -1069,45 +1069,167 @@ class GameView(context: Context) : View(context) {
         postInvalidateOnAnimation()
     }
 
+    // ---------------------------------------------------------- habillage donjon
+
+    /** Mur de pierre en fond, assombri, avec vignette. */
+    private fun drawStoneBg(canvas: Canvas, w: Float, h: Float, dark: Int = 150) {
+        val t = h * 0.11f
+        var y = 0f
+        var row = 0
+        while (y < h) {
+            var x = 0f
+            while (x < w) {
+                tmpRect.set(x, y, x + t, y + t)
+                drawTex(canvas, if ((row + (x / t).toInt()) % 5 == 0) sWallMossy else sWall, tmpRect)
+                x += t
+            }
+            y += t
+            row++
+        }
+        paint.color = Color.argb(dark, 8, 9, 16)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        // vignette
+        paint.color = Color.argb(120, 0, 0, 0)
+        canvas.drawRect(0f, 0f, w, h * 0.06f, paint)
+        canvas.drawRect(0f, h * 0.94f, w, h, paint)
+    }
+
+    /** Braises qui montent doucement. */
+    private fun drawEmbers(canvas: Canvas, w: Float, h: Float) {
+        for (k in 0 until 26) {
+            val seedX = ((k * 7919) % 1000) / 1000f
+            val sp = 0.35f + ((k * 31) % 50) / 100f
+            val yy = h * (1.05f - ((time * sp * 0.12f + seedX) % 1.15f))
+            val xx = w * seedX + sin(time * 1.4f + k) * w * 0.03f
+            val a = (110 * (1f - (h - yy) / h)).toInt().coerceIn(20, 130)
+            paint.color = Color.argb(a, 255, 170 + (k % 3) * 25, 70)
+            canvas.drawCircle(xx, yy, h * 0.0035f + (k % 3) * h * 0.0012f, paint)
+        }
+    }
+
+    /** Torche murale decorative, avec halo. */
+    private fun drawWallTorch(canvas: Canvas, cxx: Float, cyy: Float, size: Float, k: Int) {
+        val f = 0.92f + 0.1f * sin(time * 9f + k * 2.1f)
+        paint.color = Color.argb(48, 255, 165, 60)
+        canvas.drawCircle(cxx, cyy, size * 1.1f * f, paint)
+        paint.color = Color.argb(28, 255, 200, 110)
+        canvas.drawCircle(cxx, cyy, size * 1.9f * f, paint)
+        drawSprite(canvas, sTorchLit, cxx, cyy, size * f)
+    }
+
+    /** Cadre de pierre a bordure doree. */
+    private fun drawFrame(canvas: Canvas, r: RectF, fill: Int, gold: Int) {
+        val rad = r.height() * 0.22f
+        paint.color = fill
+        canvas.drawRoundRect(r, rad, rad, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = r.height() * 0.055f
+        paint.color = gold
+        canvas.drawRoundRect(r, rad, rad, paint)
+        paint.strokeWidth = r.height() * 0.018f
+        paint.color = Color.argb(70, 255, 255, 255)
+        tmpRect.set(r.left + r.height() * 0.08f, r.top + r.height() * 0.09f, r.right - r.height() * 0.08f, r.bottom - r.height() * 0.09f)
+        canvas.drawRoundRect(tmpRect, rad * 0.7f, rad * 0.7f, paint)
+        paint.style = Paint.Style.FILL
+    }
+
     // ---------------------------------------------------------- titre
 
     private fun drawTitle(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.rgb(12, 14, 24)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 165)
+
+        // Torches de part et d'autre du titre
+        drawWallTorch(canvas, w * 0.13f, h * 0.13f, h * 0.075f, 0)
+        drawWallTorch(canvas, w * 0.87f, h * 0.13f, h * 0.075f, 1)
+
+        // Titre grave dans la pierre
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
-        paint.color = Color.rgb(255, 210, 90)
-        paint.textSize = h * 0.055f
-        canvas.drawText("MINELAB", w / 2f, h * 0.15f, paint)
+        paint.textSize = h * 0.062f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.009f
+        paint.color = Color.rgb(60, 40, 12)
+        canvas.drawText("MINELAB", w / 2f, h * 0.135f, paint)
+        paint.style = Paint.Style.FILL
+        val glow = 0.5f + 0.5f * sin(time * 2f)
+        paint.color = Color.rgb(255, (196 + 30 * glow).toInt(), 80)
+        canvas.drawText("MINELAB", w / 2f, h * 0.135f, paint)
         paint.isFakeBoldText = false
-        paint.color = Color.rgb(150, 160, 185)
-        paint.textSize = h * 0.019f
-        canvas.drawText("Demineur, enigmes et tresors", w / 2f, h * 0.19f, paint)
+        paint.color = Color.rgb(190, 168, 128)
+        paint.textSize = h * 0.018f
+        canvas.drawText("~ Demineur, enigmes et tresors ~", w / 2f, h * 0.172f, paint)
 
+        // Petit trophee : cle + coffre + epee autour du titre
+        drawSprite(canvas, sChestClosed, w * 0.16f, h * 0.225f, h * 0.055f, 200)
+        drawSprite(canvas, sSwordV, w * 0.84f, h * 0.225f, h * 0.055f, 200)
+
+        // --- Panneaux
         paint.textAlign = Paint.Align.LEFT
-        paint.color = Color.rgb(140, 150, 175)
-        paint.textSize = h * 0.017f
-        canvas.drawText("NOM DU HEROS (touchez pour modifier)", tName.left, tName.top - h * 0.012f, paint)
+        paint.color = Color.rgb(200, 178, 138)
+        paint.textSize = h * 0.016f
+        paint.isFakeBoldText = true
+        canvas.drawText("NOM DU HEROS", tName.left + h * 0.008f, tName.top - h * 0.011f, paint)
+        canvas.drawText("DIFFICULTE", tDiff[0].left + h * 0.008f, tDiff[0].top - h * 0.011f, paint)
+        paint.isFakeBoldText = false
+
         drawPanelBtn(canvas, tName, playerName, false)
-        canvas.drawText("DIFFICULTE", tDiff[0].left, tDiff[0].top - h * 0.012f, paint)
         for (k in 0..2) drawPanelBtn(canvas, tDiff[k], diffName(k), difficulty == k)
-        drawPanelBtn(canvas, tGod, if (godMode) "VIE ILLIMITEE : ON (test)" else "VIE ILLIMITEE : OFF", godMode)
+        drawPanelBtn(canvas, tGod, if (godMode) "VIE ILLIMITEE : ON" else "VIE ILLIMITEE : OFF", godMode)
         drawPanelBtn(canvas, tNew, "NOUVELLE PARTIE", false)
         drawPanelBtn(canvas, tCont, if (hasSave()) "CONTINUER" else "AUCUNE SAUVEGARDE", false, hasSave())
         drawPanelBtn(canvas, tHelp, "COMMENT JOUER ?", false)
+
+        // --- Le heros fait les cent pas sur une dalle de pierre
+        val fh = h * 0.09f
+        val fy = h * 0.945f
+        var x = 0f
+        while (x < w) {
+            tmpRect.set(x, fy - fh * 0.55f, x + fh, fy + fh * 0.45f)
+            drawTex(canvas, sFloor, tmpRect)
+            x += fh
+        }
+        paint.color = Color.argb(90, 10, 12, 20)
+        canvas.drawRect(0f, fy - fh * 0.55f, w, h, paint)
+
+        val span = w * 0.62f
+        val phase = (time * 0.22f) % 2f
+        val tt = if (phase < 1f) phase else 2f - phase
+        val hxp = w * 0.19f + span * tt
+        val goingRight = phase < 1f
+        val bob = abs(sin(time * 7f)) * h * 0.006f
+        paint.color = Color.argb(90, 0, 0, 0)
+        canvas.drawOval(hxp - h * 0.026f, fy - h * 0.004f, hxp + h * 0.026f, fy + h * 0.008f, paint)
+        drawSprite(canvas, if (goingRight) sHeroRight else sHeroLeft, hxp, fy - h * 0.033f - bob, h * 0.1f)
+
+        // Une caisse et une bombe posees au sol, pour l'ambiance
+        drawSprite(canvas, sCrate, w * 0.08f, fy - h * 0.022f, h * 0.062f)
+        drawSprite(canvas, sBomb, w * 0.92f, fy - h * 0.016f, h * 0.05f)
+
+        drawEmbers(canvas, w, h)
     }
 
     private fun drawPanelBtn(canvas: Canvas, r: RectF, label: String, on: Boolean, enabled: Boolean = true) {
-        paint.color = when {
-            !enabled -> Color.rgb(30, 34, 46)
-            on -> Color.rgb(200, 145, 45)
-            else -> Color.rgb(44, 51, 70)
+        val fill = when {
+            !enabled -> Color.rgb(30, 30, 38)
+            on -> Color.rgb(132, 84, 24)
+            else -> Color.rgb(46, 44, 54)
         }
-        canvas.drawRoundRect(r, r.height() * 0.25f, r.height() * 0.25f, paint)
-        paint.color = if (enabled) Color.WHITE else Color.rgb(90, 95, 110)
+        val gold = when {
+            !enabled -> Color.rgb(70, 66, 62)
+            on -> Color.rgb(255, 208, 96)
+            else -> Color.rgb(168, 136, 72)
+        }
+        if (on) {
+            val pulse = 0.5f + 0.5f * sin(time * 3f)
+            paint.color = Color.argb((30 + 40 * pulse).toInt(), 255, 200, 90)
+            tmpRect.set(r.left - r.height() * 0.12f, r.top - r.height() * 0.12f, r.right + r.height() * 0.12f, r.bottom + r.height() * 0.12f)
+            canvas.drawRoundRect(tmpRect, r.height() * 0.3f, r.height() * 0.3f, paint)
+        }
+        drawFrame(canvas, r, fill, gold)
+        paint.color = if (enabled) Color.rgb(248, 238, 214) else Color.rgb(96, 96, 104)
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
-        paint.textSize = r.height() * 0.34f
+        paint.textSize = r.height() * 0.33f
         canvas.drawText(label, r.centerX(), r.centerY() + r.height() * 0.12f, paint)
         paint.isFakeBoldText = false
     }
@@ -1719,17 +1841,41 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawMenu(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(238, 8, 10, 18)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 190)
+        drawWallTorch(canvas, w * 0.14f, h * 0.1f, h * 0.055f, 2)
+        drawWallTorch(canvas, w * 0.86f, h * 0.1f, h * 0.055f, 3)
+
         paint.textAlign = Paint.Align.CENTER
-        paint.color = Color.rgb(255, 210, 90)
         paint.isFakeBoldText = true
-        paint.textSize = h * 0.032f
-        canvas.drawText("MENU", w / 2f, h * 0.15f, paint)
+        paint.textSize = h * 0.036f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.006f
+        paint.color = Color.rgb(60, 40, 12)
+        canvas.drawText("MENU", w / 2f, h * 0.115f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("MENU", w / 2f, h * 0.115f, paint)
         paint.isFakeBoldText = false
-        paint.color = Color.rgb(150, 160, 185)
-        paint.textSize = h * 0.018f
-        canvas.drawText("$playerName  -  ${diffName(difficulty)}", w / 2f, h * 0.19f, paint)
+
+        // Bandeau du heros
+        val bh = h * 0.052f
+        tmpRect.set(w * 0.13f, h * 0.135f, w * 0.87f, h * 0.135f + bh)
+        drawFrame(canvas, tmpRect, Color.rgb(34, 32, 42), Color.rgb(150, 122, 66))
+        drawSprite(canvas, sHeroDown, w * 0.18f, tmpRect.centerY(), bh * 1.05f)
+        paint.textAlign = Paint.Align.LEFT
+        paint.color = Color.rgb(240, 228, 200)
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.02f
+        canvas.drawText(playerName, w * 0.235f, tmpRect.centerY() - h * 0.001f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(180, 160, 122)
+        paint.textSize = h * 0.015f
+        canvas.drawText(
+            "${diffName(difficulty)}   -   PV ${if (godMode) "∞" else "$hp"}   -   Drapeaux $flagsLeft",
+            w * 0.235f, tmpRect.centerY() + h * 0.019f, paint
+        )
+        if (world.hasKey) drawSprite(canvas, sKey, w * 0.82f, tmpRect.centerY(), bh * 0.8f)
+
         drawPanelBtn(canvas, mResume, "REPRENDRE", false)
         drawPanelBtn(canvas, mInv, "INVENTAIRE", false)
         drawPanelBtn(canvas, mMap, "CARTE DU DONJON", false)
@@ -1738,16 +1884,22 @@ class GameView(context: Context) : View(context) {
         drawPanelBtn(canvas, mHelp, "COMMENT JOUER ?", false)
         drawPanelBtn(canvas, mRestart, "NOUVELLE PARTIE", false)
         drawPanelBtn(canvas, mQuit, "MENU PRINCIPAL", false)
+
+        drawEmbers(canvas, w, h)
     }
 
     private fun drawInventory(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(244, 10, 12, 22)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 205)
         paint.textAlign = Paint.Align.CENTER
-        paint.color = Color.rgb(255, 210, 90)
         paint.isFakeBoldText = true
-        paint.textSize = h * 0.032f
-        canvas.drawText("INVENTAIRE", w / 2f, h * 0.11f, paint)
+        paint.textSize = h * 0.034f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.006f
+        paint.color = Color.rgb(60, 40, 12)
+        canvas.drawText("INVENTAIRE", w / 2f, h * 0.1f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("INVENTAIRE", w / 2f, h * 0.1f, paint)
         paint.isFakeBoldText = false
 
         val joyLabel = when {
@@ -1779,8 +1931,12 @@ class GameView(context: Context) : View(context) {
             tmpRect.set(bx, y, bx + bw, y + rh)
             if (label == "Joystick") invJoyRect.set(tmpRect)
             if (label == "Canette d'energie") invEnergyRect.set(tmpRect)
-            paint.color = if ((label == "Joystick" && joyOn)) Color.rgb(40, 62, 86) else Color.rgb(28, 33, 46)
-            canvas.drawRoundRect(tmpRect, h * 0.012f, h * 0.012f, paint)
+            val active = (label == "Joystick" && joyOn)
+            drawFrame(
+                canvas, tmpRect,
+                if (active) Color.rgb(44, 62, 84) else Color.rgb(34, 32, 42),
+                if (active) Color.rgb(120, 190, 240) else Color.rgb(140, 114, 62)
+            )
             val icx = bx + rh * 0.55f
             val icy = tmpRect.centerY()
             if (icon != null) {
@@ -1808,13 +1964,12 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(242, 8, 10, 18)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 218)
         paint.textAlign = Paint.Align.LEFT
-        paint.color = Color.rgb(255, 225, 140)
+        paint.color = Color.rgb(255, 205, 90)
         paint.isFakeBoldText = true
-        paint.textSize = h * 0.024f
-        canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.08f, paint)
+        paint.textSize = h * 0.026f
+        canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.07f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
         paint.textSize = h * 0.0148f
@@ -1863,13 +2018,17 @@ class GameView(context: Context) : View(context) {
 
     /** Carte du donjon : vue d'ensemble des zones decouvertes. */
     private fun drawMap(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(244, 8, 10, 18)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 212)
         paint.textAlign = Paint.Align.CENTER
-        paint.color = Color.rgb(255, 210, 90)
         paint.isFakeBoldText = true
-        paint.textSize = h * 0.03f
-        canvas.drawText("CARTE DU DONJON", w / 2f, h * 0.09f, paint)
+        paint.textSize = h * 0.032f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.006f
+        paint.color = Color.rgb(60, 40, 12)
+        canvas.drawText("CARTE DU DONJON", w / 2f, h * 0.085f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("CARTE DU DONJON", w / 2f, h * 0.085f, paint)
         paint.isFakeBoldText = false
 
         val mw = w * 0.92f
@@ -1923,8 +2082,13 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawEnd(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(218, 0, 0, 0)
-        canvas.drawRect(0f, 0f, w, h, paint)
+        drawStoneBg(canvas, w, h, 215)
+        if (victory) {
+            drawSprite(canvas, sChestOpen, w / 2f, h * 0.27f, h * 0.16f)
+            drawEmbers(canvas, w, h)
+        } else {
+            drawSprite(canvas, sBomb, w / 2f, h * 0.27f, h * 0.13f)
+        }
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
         paint.textSize = h * 0.055f

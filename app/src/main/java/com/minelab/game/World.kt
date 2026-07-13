@@ -202,6 +202,11 @@ class World(
         door1 = idx(21, uy0 + 5)
         door2 = idx(16, uy0 + 10)       // scellee, pour plus tard
         grid[door2] = DOOR
+
+        // Le sous-sol est eclaire : couloir + salle des couleurs deja decouverts
+        for (x in 3..11) revealed.add(idx(x, cy0))
+        for (y in uy0 + 1..uy0 + 9) for (x in 12..20) revealed.add(idx(x, y))
+        revealed.add(door2)
     }
 
     private fun buildTorchRoom() {

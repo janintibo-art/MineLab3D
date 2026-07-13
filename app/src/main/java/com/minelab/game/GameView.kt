@@ -2,6 +2,8 @@ package com.minelab.game
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -64,6 +66,8 @@ class GameView(context: Context) : View(context) {
     private var victory = false
 
     // Joystick
+    private var swordOwned = false
+    private var energyCount = 0
     private var joyOwned = false
     private var joyOn = false
     private var joyPointer = -1
@@ -100,7 +104,20 @@ class GameView(context: Context) : View(context) {
     private var tile = 100f
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
     private var lastTime = System.nanoTime()
+
+    // Sprites
+    private val sChestClosed: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.chest_closed)
+    private val sChestOpen: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.chest_open)
+    private val sKey: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.key)
+    private val sLadder: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.ladder)
+    private val sTorch: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.torch)
+    private val sSword: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.sword)
+    private val sVault: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vault)
+    private val sEnergy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.energy)
+    @Suppress("unused")
+    private val sLighter: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.lighter)
 
     private var boardTop = 0f
     private var boardBottom = 0f
@@ -126,6 +143,7 @@ class GameView(context: Context) : View(context) {
     private val mRestart = RectF()
     private val mQuit = RectF()
     private val invJoyRect = RectF()
+    private val invEnergyRect = RectF()
 
     private var downX = 0f
     private var downY = 0f
@@ -186,6 +204,7 @@ class GameView(context: Context) : View(context) {
         heartsGot = 0
         flagsLeft = world.totalMines
         joyOwned = false; joyOn = false
+        swordOwned = false; energyCount = 0
         miniPlate = -1
         simonState = 0; simonInput = 0
         gameOver = false; victory = false; flagMode = false
@@ -237,6 +256,8 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("simon", world.simonSolved)
         e.putBoolean("d1", world.grid[world.door1] == World.FLOOR)
         e.putBoolean("joy", joyOwned)
+        e.putBoolean("sword", swordOwned)
+        e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
         e.putString("mines", setToStr(world.mines))
         e.putString("rev", setToStr(world.revealed))
@@ -286,6 +307,8 @@ class GameView(context: Context) : View(context) {
         heartsGot = prefs.getInt("hgot", 0)
         flagsLeft = prefs.getInt("flags", world.totalMines)
         joyOwned = prefs.getBoolean("joy", false)
+        swordOwned = prefs.getBoolean("sword", false)
+        energyCount = prefs.getInt("energy", 0)
         joyOn = prefs.getBoolean("joyOn", false)
 
         fx = hx + 0.5f; fy = hy + 0.5f
@@ -586,11 +609,12 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun openChest3() {
-        if (world.chest3Open) { showMsg("Ce coffre est vide."); return }
+        if (world.chest3Open) { showMsg("Le coffre-fort est vide."); return }
         world.chest3Open = true
+        swordOwned = true
+        energyCount++
         flagsLeft += 5
-        hp = (hp + 30).coerceAtMost(100)
-        showMsg("Le coffre contient un elixir (+30 PV) et 5 drapeaux !")
+        showMsg("Le coffre-fort s'ouvre : une EPEE, une canette d'energie et 5 drapeaux !")
     }
 
     private fun openDoor() {
@@ -902,7 +926,7 @@ class GameView(context: Context) : View(context) {
                 rect.set(l + gap, t + gap, l + tile - gap, t + tile - gap)
                 val i = world.idx(gx, gy)
 
-                if (world.grid[i] == World.WALL) { drawWall(canvas); continue }
+                if (world.grid[i] == World.WALL) { drawWall(canvas, gx, gy); continue }
                 if (world.grid[i] == World.DOOR) { drawDoor(canvas); continue }
 
                 val rev = i in world.revealed
@@ -953,18 +977,33 @@ class GameView(context: Context) : View(context) {
                 }
                 if (i == world.chest) drawChest(canvas, world.platesSolved(), world.chestOpen, true)
                 if (world.chest2Spawned && i == world.chest2) drawChest(canvas, true, world.chest2Open, false)
-                if (world.chest3Spawned && i == world.chest3) drawChest(canvas, true, world.chest3Open, false)
+                if (world.chest3Spawned && i == world.chest3) drawChest(canvas, true, world.chest3Open, false, vault = true)
                 if (i in world.blocks) drawCrate(canvas, i in world.plates || i in world.targets)
             }
         }
         drawHero(canvas, w)
     }
 
-    private fun drawWall(canvas: Canvas) {
+    /** Dessine un sprite centre sur (cx,cy) a la taille demandee. */
+    private fun drawSprite(canvas: Canvas, bmp: Bitmap, cxx: Float, cyy: Float, size: Float, alpha: Int = 255) {
+        bmpPaint.alpha = alpha
+        tmpRect.set(cxx - size / 2f, cyy - size / 2f, cxx + size / 2f, cyy + size / 2f)
+        canvas.drawBitmap(bmp, null, tmpRect, bmpPaint)
+        bmpPaint.alpha = 255
+    }
+
+    private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
         paint.color = Color.rgb(30, 34, 46)
         canvas.drawRoundRect(rect, tile * 0.08f, tile * 0.08f, paint)
         paint.color = Color.rgb(42, 47, 62)
         canvas.drawRect(rect.left, rect.top, rect.right, rect.top + tile * 0.06f, paint)
+        // Torches murales dans le sous-sol
+        if (gy >= world.uy0 && (gx + gy) % 4 == 0) {
+            val flicker = 0.94f + 0.08f * sin(time * 9f + gx * 1.7f)
+            paint.color = Color.argb(60, 255, 170, 60)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.42f * flicker, paint)
+            drawSprite(canvas, sTorch, rect.centerX(), rect.centerY(), tile * 0.95f * flicker)
+        }
     }
 
     private fun drawDoor(canvas: Canvas) {
@@ -1152,74 +1191,38 @@ class GameView(context: Context) : View(context) {
         canvas.drawRect(tmpRect.right - s, tmpRect.bottom - s, tmpRect.right, tmpRect.bottom, paint)
     }
 
-    private fun drawChest(canvas: Canvas, unlocked: Boolean, open: Boolean, withKeyAnim: Boolean) {
+    private fun drawChest(canvas: Canvas, unlocked: Boolean, open: Boolean, withKeyAnim: Boolean, vault: Boolean = false) {
         val cxx = rect.centerX()
         val cyy = rect.centerY()
-        val w = tile * 0.36f
-
         if (unlocked && !open) {
             val pulse = 0.5f + 0.5f * sin(time * 4f)
-            paint.color = Color.argb((70 + 90 * pulse).toInt(), 255, 220, 90)
-            canvas.drawCircle(cxx, cyy, tile * 0.46f, paint)
+            paint.color = Color.argb((60 + 90 * pulse).toInt(), 255, 220, 90)
+            canvas.drawCircle(cxx, cyy, tile * 0.5f, paint)
         }
-        paint.color = Color.rgb(122, 78, 40)
-        tmpRect.set(cxx - w, cyy - w * 0.15f, cxx + w, cyy + w * 0.75f)
-        canvas.drawRoundRect(tmpRect, tile * 0.05f, tile * 0.05f, paint)
-        paint.color = Color.rgb(150, 100, 52)
-        canvas.drawRect(cxx - w, cyy + w * 0.05f, cxx + w, cyy + w * 0.3f, paint)
-
-        if (!open) {
-            paint.color = Color.rgb(96, 60, 30)
-            tmpRect.set(cxx - w, cyy - w * 0.75f, cxx + w, cyy - w * 0.05f)
-            canvas.drawRoundRect(tmpRect, tile * 0.14f, tile * 0.14f, paint)
-            paint.color = Color.rgb(132, 86, 44)
-            tmpRect.set(cxx - w * 0.9f, cyy - w * 0.68f, cxx + w * 0.9f, cyy - w * 0.2f)
-            canvas.drawRoundRect(tmpRect, tile * 0.1f, tile * 0.1f, paint)
-        } else {
-            paint.color = Color.rgb(70, 44, 22)
-            tmpRect.set(cxx - w, cyy - w * 0.35f, cxx + w, cyy - w * 0.1f)
-            canvas.drawRoundRect(tmpRect, tile * 0.05f, tile * 0.05f, paint)
-            paint.color = Color.rgb(96, 60, 30)
-            tmpRect.set(cxx - w * 0.95f, cyy - w * 1.15f, cxx + w * 0.95f, cyy - w * 0.45f)
-            canvas.drawRoundRect(tmpRect, tile * 0.12f, tile * 0.12f, paint)
-            paint.color = Color.rgb(255, 216, 92)
-            canvas.drawCircle(cxx - w * 0.4f, cyy + w * 0.2f, tile * 0.06f, paint)
-            canvas.drawCircle(cxx, cyy + w * 0.3f, tile * 0.07f, paint)
-            canvas.drawCircle(cxx + w * 0.42f, cyy + w * 0.18f, tile * 0.055f, paint)
+        val bmp = when {
+            vault -> sVault
+            open -> sChestOpen
+            else -> sChestClosed
         }
-        paint.color = Color.rgb(238, 196, 78)
-        canvas.drawRect(cxx - w * 0.12f, cyy - w * 0.15f, cxx + w * 0.12f, cyy + w * 0.75f, paint)
-        if (!open) {
-            canvas.drawRoundRect(
-                RectF(cxx - w * 0.18f, cyy - w * 0.18f, cxx + w * 0.18f, cyy + w * 0.2f),
-                tile * 0.03f, tile * 0.03f, paint
-            )
-            paint.color = Color.rgb(70, 44, 22)
-            canvas.drawCircle(cxx, cyy + w * 0.01f, tile * 0.035f, paint)
+        drawSprite(canvas, bmp, cxx, cyy - tile * 0.04f, tile * 1.02f)
+        if (vault && open) {
+            paint.color = Color.argb(120, 255, 240, 160)
+            canvas.drawCircle(cxx, cyy, tile * 0.3f, paint)
         }
         if (withKeyAnim && keyAnim > 0f) {
             val t = 1f - keyAnim / 3f
-            val ky = cyy - w * 1.0f - tile * 0.7f * t
-            paint.color = Color.argb((255 * (1f - t * 0.35f)).toInt(), 255, 225, 110)
-            drawKeyShape(canvas, cxx, ky, tile * 0.42f)
-            paint.color = Color.argb((160 * (1f - t)).toInt(), 255, 255, 200)
-            for (k in 0..4) {
-                val a = time * 3f + k * 1.25f
-                canvas.drawCircle(cxx + cos(a) * tile * 0.3f, ky + sin(a) * tile * 0.22f, tile * 0.035f, paint)
+            val ky = cyy - tile * 0.45f - tile * 0.75f * t
+            drawSprite(canvas, sKey, cxx, ky, tile * 0.62f, (255 * (1f - t * 0.3f)).toInt())
+            paint.color = Color.argb((170 * (1f - t)).toInt(), 255, 245, 190)
+            for (k in 0..5) {
+                val a = time * 3f + k * 1.05f
+                canvas.drawCircle(cxx + cos(a) * tile * 0.34f, ky + sin(a) * tile * 0.26f, tile * 0.035f, paint)
             }
         }
     }
 
-    private fun drawKeyShape(canvas: Canvas, cxx: Float, cyy: Float, s: Float) {
-        val col = paint.color
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = s * 0.16f
-        paint.color = col
-        canvas.drawCircle(cxx - s * 0.28f, cyy, s * 0.2f, paint)
-        paint.style = Paint.Style.FILL
-        canvas.drawRect(cxx - s * 0.1f, cyy - s * 0.07f, cxx + s * 0.45f, cyy + s * 0.07f, paint)
-        canvas.drawRect(cxx + s * 0.2f, cyy + s * 0.05f, cxx + s * 0.28f, cyy + s * 0.24f, paint)
-        canvas.drawRect(cxx + s * 0.36f, cyy + s * 0.05f, cxx + s * 0.44f, cyy + s * 0.2f, paint)
+    private fun drawKeyShape(canvas: Canvas, cxx: Float, cyy: Float, sz: Float) {
+        drawSprite(canvas, sKey, cxx, cyy, sz * 1.6f)
     }
 
     private fun drawTrap(canvas: Canvas) {
@@ -1245,15 +1248,8 @@ class GameView(context: Context) : View(context) {
             paint.strokeWidth = tile * 0.05f
             paint.color = Color.rgb(80, 230, 140)
             canvas.drawRoundRect(rect, rad, rad, paint)
-            paint.color = Color.rgb(170, 130, 70)
-            canvas.drawLine(rect.left + tile * 0.14f, rect.top + tile * 0.1f, rect.left + tile * 0.14f, rect.bottom - tile * 0.1f, paint)
-            canvas.drawLine(rect.right - tile * 0.14f, rect.top + tile * 0.1f, rect.right - tile * 0.14f, rect.bottom - tile * 0.1f, paint)
-            var yy = rect.top + tile * 0.18f
-            while (yy < rect.bottom - tile * 0.08f) {
-                canvas.drawLine(rect.left + tile * 0.14f, yy, rect.right - tile * 0.14f, yy, paint)
-                yy += tile * 0.17f
-            }
             paint.style = Paint.Style.FILL
+            drawSprite(canvas, sLadder, rect.centerX(), rect.centerY(), tile * 0.9f)
         }
     }
 
@@ -1484,56 +1480,69 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawInventory(canvas: Canvas, w: Float, h: Float) {
-        paint.color = Color.argb(242, 10, 12, 22)
+        paint.color = Color.argb(244, 10, 12, 22)
         canvas.drawRect(0f, 0f, w, h, paint)
         paint.textAlign = Paint.Align.CENTER
         paint.color = Color.rgb(255, 210, 90)
         paint.isFakeBoldText = true
         paint.textSize = h * 0.032f
-        canvas.drawText("INVENTAIRE", w / 2f, h * 0.13f, paint)
+        canvas.drawText("INVENTAIRE", w / 2f, h * 0.11f, paint)
         paint.isFakeBoldText = false
 
         val joyLabel = when {
             !joyOwned -> "pas trouve"
-            joyOn -> "ACTIF (touchez pour couper)"
+            joyOn -> "ACTIF - touchez pour couper"
             else -> "touchez pour ACTIVER"
         }
-        val items = listOf(
-            Triple("Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
-            Triple("Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
-            Triple("Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
-            Triple("Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
-            Triple("Mines restantes", "${world.mines.size}", Color.rgb(180, 190, 210)),
-            Triple("Points de vie", if (godMode) "illimites" else "$hp", Color.rgb(215, 90, 85)),
-            Triple("Joystick", joyLabel, Color.rgb(120, 190, 240))
+        // (icone, libelle, valeur, couleur)
+        val rows: List<Array<Any?>> = listOf(
+            arrayOf(null, "Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
+            arrayOf(sKey, "Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
+            arrayOf(sSword, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
+            arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
+            arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
+            arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
+            arrayOf(null, "Points de vie", if (godMode) "illimites" else "$hp / 100", Color.rgb(215, 90, 85)),
+            arrayOf(null, "Joystick", joyLabel, Color.rgb(120, 190, 240))
         )
-        var y = h * 0.19f
-        val bw = w * 0.8f
+        var y = h * 0.16f
+        val bw = w * 0.84f
         val bx = (w - bw) / 2f
-        for ((k, item) in items.withIndex()) {
-            val (label, value, col) = item
-            tmpRect.set(bx, y, bx + bw, y + h * 0.06f)
+        val rh = h * 0.062f
+        for (r in rows) {
+            val icon = r[0] as Bitmap?
+            val label = r[1] as String
+            val value = r[2] as String
+            val col = r[3] as Int
+            tmpRect.set(bx, y, bx + bw, y + rh)
             if (label == "Joystick") invJoyRect.set(tmpRect)
-            paint.color = if (label == "Joystick" && joyOn) Color.rgb(40, 60, 82) else Color.rgb(28, 33, 46)
+            if (label == "Canette d'energie") invEnergyRect.set(tmpRect)
+            paint.color = if ((label == "Joystick" && joyOn)) Color.rgb(40, 62, 86) else Color.rgb(28, 33, 46)
             canvas.drawRoundRect(tmpRect, h * 0.012f, h * 0.012f, paint)
-            paint.color = col
-            canvas.drawCircle(bx + h * 0.03f, tmpRect.centerY(), h * 0.014f, paint)
+            val icx = bx + rh * 0.55f
+            val icy = tmpRect.centerY()
+            if (icon != null) {
+                drawSprite(canvas, icon, icx, icy, rh * 0.9f)
+            } else {
+                paint.color = col
+                canvas.drawCircle(icx, icy, rh * 0.2f, paint)
+            }
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.LEFT
             paint.textSize = h * 0.019f
-            canvas.drawText(label, bx + h * 0.055f, tmpRect.centerY() + h * 0.007f, paint)
+            canvas.drawText(label, bx + rh * 1.1f, icy + h * 0.007f, paint)
             paint.textAlign = Paint.Align.RIGHT
             paint.color = col
             paint.isFakeBoldText = true
-            paint.textSize = h * 0.017f
-            canvas.drawText(value, bx + bw - h * 0.02f, tmpRect.centerY() + h * 0.007f, paint)
+            paint.textSize = h * 0.0165f
+            canvas.drawText(value, bx + bw - h * 0.02f, icy + h * 0.007f, paint)
             paint.isFakeBoldText = false
-            y += h * 0.072f
+            y += rh + h * 0.012f
         }
         paint.textAlign = Paint.Align.CENTER
         paint.color = Color.rgb(150, 160, 185)
         paint.textSize = h * 0.018f
-        canvas.drawText("Touchez ailleurs pour fermer", w / 2f, h * 0.9f, paint)
+        canvas.drawText("Touchez ailleurs pour fermer", w / 2f, h * 0.93f, paint)
     }
 
     private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
@@ -1692,6 +1701,11 @@ class GameView(context: Context) : View(context) {
                 joyOn = !joyOn
                 saveGame()
                 showMsg(if (joyOn) "Joystick active !" else "Joystick desactive.")
+            } else if (invEnergyRect.contains(e.x, e.y) && energyCount > 0) {
+                energyCount--
+                hp = (hp + 30).coerceAtMost(100)
+                saveGame()
+                showMsg("Glouglou ! +30 PV")
             } else {
                 showInv = false
             }

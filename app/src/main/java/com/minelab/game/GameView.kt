@@ -112,12 +112,42 @@ class GameView(context: Context) : View(context) {
     private val sChestOpen: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.chest_open)
     private val sKey: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.key)
     private val sLadder: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.ladder)
+    @Suppress("unused")
     private val sTorch: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.torch)
+    @Suppress("unused")
     private val sSword: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.sword)
+    private val sSwordV: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.sword_v)
     private val sVault: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vault)
     private val sEnergy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.energy)
     @Suppress("unused")
     private val sLighter: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.lighter)
+    private val sHeroDown: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_down)
+    private val sHeroUp: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_up)
+    private val sHeroLeft: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_left)
+    private val sHeroRight: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_right)
+    private val sCrate: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.crate)
+    private val sPlate: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.plate)
+    private val sBomb: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.bomb)
+    private val sFlag: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.flag)
+    private val sHeart: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.heart)
+    private val sTorchLit: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.torch_lit)
+    private val sFloor: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_stone)
+    private val sFloorDark: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_rock)
+    private val sFloorWood: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
+    private val sWall: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_brick)
+    private val sWallMossy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_mossy)
+    @Suppress("unused")
+    private val sMonsters: Array<Bitmap> = arrayOf(
+        BitmapFactory.decodeResource(resources, R.drawable.mon_slime),
+        BitmapFactory.decodeResource(resources, R.drawable.mon_skeleton),
+        BitmapFactory.decodeResource(resources, R.drawable.mon_goblin),
+        BitmapFactory.decodeResource(resources, R.drawable.mon_spider),
+        BitmapFactory.decodeResource(resources, R.drawable.mon_bat),
+        BitmapFactory.decodeResource(resources, R.drawable.mon_orc)
+    )
+
+    /** Direction du heros : 0 bas, 1 haut, 2 gauche, 3 droite. */
+    private var heroDir = 0
 
     private var boardTop = 0f
     private var boardBottom = 0f
@@ -210,6 +240,7 @@ class GameView(context: Context) : View(context) {
         gameOver = false; victory = false; flagMode = false
         showHelp = false; showMenu = false; showInv = false
         boomFlash = 0f; keyAnim = 0f
+        heroDir = 0
         state = PLAYING
         showMsg("Traversez le champ de mines jusqu'au passage de droite !")
         saveGame()
@@ -420,6 +451,13 @@ class GameView(context: Context) : View(context) {
             val speed = 7f * dt
             val dx = gx - fx
             val dy = gy - fy
+            if (abs(dx) > 0.01f || abs(dy) > 0.01f) {
+                heroDir = if (abs(dx) >= abs(dy)) {
+                    if (dx > 0) 3 else 2
+                } else {
+                    if (dy > 0) 0 else 1
+                }
+            }
             if (hypot(dx, dy) <= speed) {
                 fx = gx; fy = gy
                 hx = tx; hy = ty
@@ -938,10 +976,9 @@ class GameView(context: Context) : View(context) {
                     i in world.exploded -> drawBomb(canvas, true)
                     i in world.defused -> drawBomb(canvas, false)
                     rev -> {
-                        paint.color = Color.rgb(226, 232, 240)
-                        canvas.drawRoundRect(rect, rad, rad, paint)
-                        paint.color = Color.rgb(198, 206, 216)
-                        canvas.drawRect(rect.left, rect.bottom - tile * 0.05f, rect.right, rect.bottom, paint)
+                        val under = gy >= world.uy0
+                        tmpRect.set(rect.left - tile * 0.04f, rect.top - tile * 0.04f, rect.right + tile * 0.04f, rect.bottom + tile * 0.04f)
+                        drawTex(canvas, if (under) sFloorWood else sFloor, tmpRect)
                         if (i in world.plates) {
                             if (i in world.plateSolved) drawPlate(canvas, i) else drawCoveredPlate(canvas)
                         }
@@ -956,22 +993,28 @@ class GameView(context: Context) : View(context) {
                         if (n > 0 && i !in world.plates && i !in world.targets && k < 0 &&
                             i != world.altar && !isExit && i !in world.hearts
                         ) {
-                            paint.color = numberColor(n)
                             paint.textAlign = Paint.Align.CENTER
-                            paint.textSize = tile * 0.56f
+                            paint.textSize = tile * 0.58f
                             paint.isFakeBoldText = true
-                            canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.2f, paint)
+                            paint.style = Paint.Style.STROKE
+                            paint.strokeWidth = tile * 0.075f
+                            paint.color = Color.argb(210, 12, 12, 18)
+                            canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.21f, paint)
+                            paint.style = Paint.Style.FILL
+                            paint.color = numberColor(n)
+                            canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.21f, paint)
                             paint.isFakeBoldText = false
                         }
                     }
                     else -> {
-                        paint.color = Color.rgb(36, 44, 58)
+                        paint.color = Color.rgb(18, 22, 30)
                         canvas.drawRoundRect(rect, rad, rad, paint)
                         tmpRect.set(rect)
-                        tmpRect.inset(tile * 0.045f, tile * 0.045f)
+                        tmpRect.inset(tile * 0.03f, tile * 0.05f)
                         tmpRect.offset(0f, -tile * 0.02f)
-                        paint.color = Color.rgb(58, 69, 88)
-                        canvas.drawRoundRect(tmpRect, rad * 0.8f, rad * 0.8f, paint)
+                        drawTex(canvas, sFloorDark, tmpRect)
+                        paint.color = Color.argb(70, 40, 60, 110)
+                        canvas.drawRect(tmpRect, paint)
                         if (i in world.flagged) drawFlag(canvas)
                     }
                 }
@@ -992,17 +1035,24 @@ class GameView(context: Context) : View(context) {
         bmpPaint.alpha = 255
     }
 
+    private fun drawTex(canvas: Canvas, bmp: Bitmap, r: RectF, alpha: Int = 255) {
+        bmpPaint.alpha = alpha
+        canvas.drawBitmap(bmp, null, r, bmpPaint)
+        bmpPaint.alpha = 255
+    }
+
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
-        paint.color = Color.rgb(30, 34, 46)
-        canvas.drawRoundRect(rect, tile * 0.08f, tile * 0.08f, paint)
-        paint.color = Color.rgb(42, 47, 62)
-        canvas.drawRect(rect.left, rect.top, rect.right, rect.top + tile * 0.06f, paint)
-        // Torches murales dans le sous-sol
-        if (gy >= world.uy0 && (gx + gy) % 4 == 0) {
-            val flicker = 0.94f + 0.08f * sin(time * 9f + gx * 1.7f)
-            paint.color = Color.argb(60, 255, 170, 60)
-            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.42f * flicker, paint)
-            drawSprite(canvas, sTorch, rect.centerX(), rect.centerY(), tile * 0.95f * flicker)
+        val under = gy >= world.uy0
+        tmpRect.set(rect.left - tile * 0.045f, rect.top - tile * 0.045f, rect.right + tile * 0.045f, rect.bottom + tile * 0.045f)
+        drawTex(canvas, if (under) sWallMossy else sWall, tmpRect)
+        paint.color = Color.argb(if (under) 90 else 70, 0, 0, 0)
+        canvas.drawRect(tmpRect, paint)
+        // Torches murales
+        if ((gx + gy) % 5 == 0) {
+            val flicker = 0.93f + 0.09f * sin(time * 9f + gx * 1.7f)
+            paint.color = Color.argb(70, 255, 170, 60)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.55f * flicker, paint)
+            drawSprite(canvas, sTorchLit, rect.centerX(), rect.centerY(), tile * 1.05f * flicker)
         }
     }
 
@@ -1029,63 +1079,31 @@ class GameView(context: Context) : View(context) {
 
     private fun drawBomb(canvas: Canvas, boom: Boolean) {
         val rad = tile * 0.16f
-        paint.color = if (boom) Color.rgb(150, 45, 42) else Color.rgb(96, 104, 118)
+        paint.color = if (boom) Color.rgb(120, 40, 38) else Color.rgb(64, 72, 86)
         canvas.drawRoundRect(rect, rad, rad, paint)
-        val cxx = rect.centerX()
-        val cyy = rect.centerY() + tile * 0.03f
-        paint.color = if (boom) Color.rgb(28, 26, 30) else Color.rgb(46, 50, 60)
-        canvas.drawCircle(cxx, cyy, tile * 0.2f, paint)
-        paint.color = Color.argb(90, 255, 255, 255)
-        canvas.drawCircle(cxx - tile * 0.07f, cyy - tile * 0.08f, tile * 0.05f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = tile * 0.04f
-        paint.color = if (boom) Color.rgb(230, 170, 60) else Color.rgb(120, 128, 140)
-        val p = Path()
-        p.moveTo(cxx + tile * 0.1f, cyy - tile * 0.17f)
-        p.quadTo(cxx + tile * 0.24f, cyy - tile * 0.3f, cxx + tile * 0.14f, cyy - tile * 0.34f)
-        canvas.drawPath(p, paint)
-        paint.style = Paint.Style.FILL
         if (boom) {
-            paint.color = Color.rgb(255, 210, 70)
-            canvas.drawCircle(cxx + tile * 0.14f, cyy - tile * 0.36f, tile * 0.045f, paint)
+            val pulse = 0.5f + 0.5f * sin(time * 6f)
+            paint.color = Color.argb((50 + 50 * pulse).toInt(), 255, 140, 40)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.42f, paint)
+        }
+        drawSprite(canvas, sBomb, rect.centerX(), rect.centerY(), tile * 0.78f, if (boom) 255 else 150)
+        if (!boom) {
+            paint.color = Color.rgb(80, 220, 130)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = tile * 0.42f
+            paint.isFakeBoldText = true
+            canvas.drawText("✓", rect.centerX(), rect.centerY() + tile * 0.15f, paint)
+            paint.isFakeBoldText = false
         }
     }
 
     private fun drawPlate(canvas: Canvas, i: Int) {
-        val on = i in world.blocks
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = tile * 0.06f
-        paint.color = if (on) Color.rgb(60, 190, 110) else Color.rgb(205, 125, 45)
-        canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.24f, paint)
-        paint.style = Paint.Style.FILL
-        canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.09f, paint)
-    }
-
-    /** Dalle de pression recouverte : petite grille 3x3 a resoudre. */
-    private fun drawCoveredPlate(canvas: Canvas) {
-        tmpRect.set(rect)
-        tmpRect.inset(tile * 0.1f, tile * 0.1f)
-        paint.color = Color.rgb(52, 62, 80)
-        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = tile * 0.025f
-        paint.color = Color.rgb(90, 102, 124)
-        val x1 = tmpRect.left + tmpRect.width() / 3f
-        val x2 = tmpRect.left + tmpRect.width() * 2f / 3f
-        val y1 = tmpRect.top + tmpRect.height() / 3f
-        val y2 = tmpRect.top + tmpRect.height() * 2f / 3f
-        canvas.drawLine(x1, tmpRect.top, x1, tmpRect.bottom, paint)
-        canvas.drawLine(x2, tmpRect.top, x2, tmpRect.bottom, paint)
-        canvas.drawLine(tmpRect.left, y1, tmpRect.right, y1, paint)
-        canvas.drawLine(tmpRect.left, y2, tmpRect.right, y2, paint)
-        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
-        paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(255, 210, 90)
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = tile * 0.3f
-        paint.isFakeBoldText = true
-        canvas.drawText("?", rect.centerX(), rect.centerY() + tile * 0.1f, paint)
-        paint.isFakeBoldText = false
+        drawSprite(canvas, sPlate, rect.centerX(), rect.centerY(), tile * 0.94f)
+        if (i !in world.blocks) {
+            val pulse = 0.5f + 0.5f * sin(time * 3f)
+            paint.color = Color.argb((50 + 50 * pulse).toInt(), 255, 190, 70)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.22f, paint)
+        }
     }
 
     private fun drawTarget(canvas: Canvas, i: Int) {
@@ -1150,45 +1168,20 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawHeart(canvas: Canvas) {
-        val cxx = rect.centerX()
-        val cyy = rect.centerY() + tile * 0.04f
-        val s = tile * 0.2f * (1f + 0.08f * sin(time * 5f))
-        paint.color = Color.rgb(230, 60, 80)
-        val p = Path()
-        p.moveTo(cxx, cyy + s)
-        p.cubicTo(cxx - s * 1.5f, cyy - s * 0.2f, cxx - s * 0.7f, cyy - s * 1.2f, cxx, cyy - s * 0.35f)
-        p.cubicTo(cxx + s * 0.7f, cyy - s * 1.2f, cxx + s * 1.5f, cyy - s * 0.2f, cxx, cyy + s)
-        p.close()
-        canvas.drawPath(p, paint)
-        paint.color = Color.argb(120, 255, 255, 255)
-        canvas.drawCircle(cxx - s * 0.35f, cyy - s * 0.45f, s * 0.18f, paint)
+        val bob = sin(time * 3.5f) * tile * 0.04f
+        val pulse = 0.5f + 0.5f * sin(time * 4f)
+        paint.color = Color.argb((45 + 50 * pulse).toInt(), 255, 90, 110)
+        canvas.drawCircle(rect.centerX(), rect.centerY() + bob, tile * 0.4f, paint)
+        drawSprite(canvas, sHeart, rect.centerX(), rect.centerY() + bob, tile * 0.68f)
     }
 
     private fun drawCrate(canvas: Canvas, onTarget: Boolean) {
-        tmpRect.set(rect)
-        tmpRect.inset(tile * 0.015f, tile * 0.015f)
-        val body = if (onTarget) Color.rgb(126, 176, 96) else Color.rgb(170, 118, 62)
-        val dark = if (onTarget) Color.rgb(74, 118, 58) else Color.rgb(112, 74, 36)
-        val light = if (onTarget) Color.rgb(160, 205, 125) else Color.rgb(205, 155, 95)
-        paint.color = body
-        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
-        paint.color = light
-        canvas.drawRect(tmpRect.left, tmpRect.top + tile * 0.06f, tmpRect.right, tmpRect.top + tile * 0.11f, paint)
-        canvas.drawRect(tmpRect.left, tmpRect.bottom - tile * 0.11f, tmpRect.right, tmpRect.bottom - tile * 0.06f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = tile * 0.06f
-        paint.color = dark
-        canvas.drawLine(tmpRect.left + tile * 0.08f, tmpRect.top + tile * 0.08f, tmpRect.right - tile * 0.08f, tmpRect.bottom - tile * 0.08f, paint)
-        canvas.drawLine(tmpRect.right - tile * 0.08f, tmpRect.top + tile * 0.08f, tmpRect.left + tile * 0.08f, tmpRect.bottom - tile * 0.08f, paint)
-        paint.strokeWidth = tile * 0.045f
-        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
-        paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(120, 126, 138)
-        val s = tile * 0.09f
-        canvas.drawRect(tmpRect.left, tmpRect.top, tmpRect.left + s, tmpRect.top + s, paint)
-        canvas.drawRect(tmpRect.right - s, tmpRect.top, tmpRect.right, tmpRect.top + s, paint)
-        canvas.drawRect(tmpRect.left, tmpRect.bottom - s, tmpRect.left + s, tmpRect.bottom, paint)
-        canvas.drawRect(tmpRect.right - s, tmpRect.bottom - s, tmpRect.right, tmpRect.bottom, paint)
+        if (onTarget) {
+            val pulse = 0.5f + 0.5f * sin(time * 3.5f)
+            paint.color = Color.argb((60 + 60 * pulse).toInt(), 90, 230, 130)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.48f, paint)
+        }
+        drawSprite(canvas, sCrate, rect.centerX(), rect.centerY(), tile * 0.98f)
     }
 
     private fun drawChest(canvas: Canvas, unlocked: Boolean, open: Boolean, withKeyAnim: Boolean, vault: Boolean = false) {
@@ -1254,49 +1247,26 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun drawFlag(canvas: Canvas) {
-        val cxx = rect.centerX()
-        val cyy = rect.centerY()
-        val s = tile * 0.3f
-        paint.color = Color.rgb(228, 232, 240)
-        paint.strokeWidth = tile * 0.05f
-        paint.style = Paint.Style.STROKE
-        canvas.drawLine(cxx - s * 0.15f, cyy + s * 0.78f, cxx - s * 0.15f, cyy - s * 0.8f, paint)
-        paint.style = Paint.Style.FILL
-        val p = Path()
-        p.moveTo(cxx - s * 0.15f, cyy - s * 0.85f)
-        p.lineTo(cxx + s * 0.85f, cyy - s * 0.42f)
-        p.lineTo(cxx - s * 0.15f, cyy + s * 0.02f)
-        p.close()
-        paint.color = Color.rgb(230, 55, 50)
-        canvas.drawPath(p, paint)
+        drawSprite(canvas, sFlag, rect.centerX(), rect.centerY() - tile * 0.03f, tile * 0.8f)
     }
 
     private fun drawHero(canvas: Canvas, w: Float) {
-        val l = sx(fx - 0.5f, w)
-        val t = sy(fy - 0.5f)
-        val cxx = l + tile / 2f
+        val cxx = sx(fx, w)
         val walking = pathStep < path.size
-        val bob = if (walking) sin(walkPhase) * tile * 0.03f else 0f
-        val swing = if (walking) sin(walkPhase) * tile * 0.06f else 0f
-        val by = t + tile * 0.88f + bob
-
-        paint.color = Color.argb(90, 0, 0, 0)
-        canvas.drawOval(cxx - tile * 0.21f, by - tile * 0.05f, cxx + tile * 0.21f, by + tile * 0.05f, paint)
-        paint.color = Color.rgb(42, 52, 82)
-        canvas.drawRect(cxx - tile * 0.13f + swing, by - tile * 0.19f, cxx - tile * 0.02f + swing, by, paint)
-        canvas.drawRect(cxx + tile * 0.02f - swing, by - tile * 0.19f, cxx + tile * 0.13f - swing, by, paint)
-        paint.color = Color.rgb(222, 68, 54)
-        tmpRect.set(cxx - tile * 0.18f, by - tile * 0.48f, cxx + tile * 0.18f, by - tile * 0.17f)
-        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
-        canvas.drawRect(cxx - tile * 0.25f, by - tile * 0.44f, cxx - tile * 0.17f, by - tile * 0.23f, paint)
-        canvas.drawRect(cxx + tile * 0.17f, by - tile * 0.44f, cxx + tile * 0.25f, by - tile * 0.23f, paint)
-        paint.color = Color.rgb(250, 205, 60)
-        canvas.drawCircle(cxx, by - tile * 0.6f, tile * 0.17f, paint)
-        paint.color = Color.rgb(30, 30, 30)
-        canvas.drawCircle(cxx - tile * 0.06f, by - tile * 0.63f, tile * 0.026f, paint)
-        canvas.drawCircle(cxx + tile * 0.06f, by - tile * 0.63f, tile * 0.026f, paint)
-        tmpRect.set(cxx - tile * 0.07f, by - tile * 0.59f, cxx + tile * 0.07f, by - tile * 0.51f)
-        canvas.drawArc(tmpRect, 0f, 180f, true, paint)
+        val bob = if (walking) abs(sin(walkPhase * 0.5f)) * tile * 0.06f else 0f
+        val cyy = sy(fy) - tile * 0.12f - bob
+        paint.color = Color.argb(95, 0, 0, 0)
+        canvas.drawOval(
+            cxx - tile * 0.26f, sy(fy) + tile * 0.22f,
+            cxx + tile * 0.26f, sy(fy) + tile * 0.36f, paint
+        )
+        val bmp = when (heroDir) {
+            1 -> sHeroUp
+            2 -> sHeroLeft
+            3 -> sHeroRight
+            else -> sHeroDown
+        }
+        drawSprite(canvas, bmp, cxx, cyy, tile * 1.25f)
     }
 
     private fun numberColor(n: Int): Int = when (n) {
@@ -1498,7 +1468,7 @@ class GameView(context: Context) : View(context) {
         val rows: List<Array<Any?>> = listOf(
             arrayOf(null, "Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
             arrayOf(sKey, "Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
-            arrayOf(sSword, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
+            arrayOf(sSwordV, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),

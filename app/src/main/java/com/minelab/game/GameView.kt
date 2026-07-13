@@ -149,6 +149,7 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun useTer(bmp: Bitmap, scale: Float = 1f, alpha: Int = 255) {
+        terPaint.color = Color.BLACK
         terPaint.shader = terShader(bmp, scale)
         terPaint.alpha = alpha
     }
@@ -1904,22 +1905,36 @@ class GameView(context: Context) : View(context) {
      * Chaque couche est posee en "taches" rondes qui se chevauchent : les cotes
      * sont organiques, il n'y a ni couture ni escalier de carres.
      */
+    /** Bruit deterministe 0..1 par case. */
+    private fun hash01(a: Int, b: Int, c: Int): Float {
+        var h = a * 374761393 + b * 668265263 + c * 974634341
+        h = (h xor (h ushr 13)) * 1274126177
+        h = h xor (h ushr 16)
+        return (h and 0x7FFFFFFF) % 1000 / 1000f
+    }
+
+    /**
+     * Le terrain de l'ile : chaque couche est remplie PLEINEMENT (rectangles,
+     * texture continue), puis sa frontiere est cassee par des lobes irreguliers
+     * places au bruit deterministe. Ni couture, ni carre, ni festons reguliers.
+     */
     private fun drawIslandTerrain(canvas: Canvas, w: Float, cgx: Int, cgy: Int, nx: Int, ny: Int) {
         val x0 = cgx - nx
         val x1 = cgx + nx
         val y0 = maxOf(cgy - ny, world.iy0)
         val y1 = minOf(cgy + ny, world.iy0 + 34)
         if (y0 > y1) return
-        val r = tile * 0.78f
 
-        // 1. La mer, partout, en fond continu
+        fun terOf(gx: Int, gy: Int): Int =
+            if (!world.inside(gx, gy)) World.TER_WATER else world.terrain[world.idx(gx, gy)]
+
+        // 1. La mer : un seul rectangle continu
         useTer(sWater, 1.6f)
         canvas.drawRect(
             sx(x0.toFloat(), w), sy(y0.toFloat()),
             sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), terPaint
         )
         terPaint.shader = null
-        // Houle
         val wv = 0.5f + 0.5f * sin(time * 0.9f)
         paint.color = Color.argb((12 + 14 * wv).toInt(), 190, 235, 255)
         canvas.drawRect(
@@ -1927,62 +1942,79 @@ class GameView(context: Context) : View(context) {
             sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), paint
         )
 
-        // 2. Les hauts-fonds : l'eau s'eclaircit, le sable transparait
-        for (gy in y0..y1) for (gx in x0..x1) {
-            if (!world.inside(gx, gy)) continue
-            if (world.terrain[world.idx(gx, gy)] != World.TER_SHALLOW) continue
-            val cxx = sx(gx + 0.5f, w)
-            val cyy = sy(gy + 0.5f)
-            paint.color = Color.argb(85, 240, 220, 160)
-            canvas.drawCircle(cxx, cyy, r, paint)
-            val f = 0.5f + 0.5f * sin(time * 1.5f + gx * 0.8f + gy * 0.6f)
-            paint.color = Color.argb((20 + 30 * f).toInt(), 255, 255, 255)
-            canvas.drawCircle(cxx, cyy, r * 0.92f, paint)
+        /**
+         * Peint une couche : remplissage plein de chaque case du groupe, puis
+         * lobes irreguliers sur les bords exterieurs.
+         * inSet : la case appartient-elle a la couche (ou a une couche superieure) ?
+         */
+        fun layer(inSet: (Int) -> Boolean, lobes: Int, lobeMin: Float, lobeMax: Float, salt: Int) {
+            for (gy in y0..y1) for (gx in x0..x1) {
+                if (!inSet(terOf(gx, gy))) continue
+                // La case pleine (leger debord pour souder les cases entre elles)
+                canvas.drawRect(
+                    sx(gx.toFloat(), w) - 0.5f, sy(gy.toFloat()) - 0.5f,
+                    sx(gx + 1f, w) + 0.5f, sy(gy + 1f) + 0.5f, terPaint
+                )
+                // Les bords : des lobes qui debordent vers l'exterieur
+                for ((k, d) in listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1)).withIndex()) {
+                    if (inSet(terOf(gx + d.first, gy + d.second))) continue
+                    for (n in 0 until lobes) {
+                        val t = 0.15f + 0.7f * hash01(gx, gy, salt + k * 7 + n * 13)
+                        val rr = tile * (lobeMin + (lobeMax - lobeMin) * hash01(gx, gy, salt + 3 + k * 11 + n * 17))
+                        val px: Float
+                        val py: Float
+                        if (d.first != 0) {
+                            px = sx(gx + (if (d.first > 0) 1f else 0f), w)
+                            py = sy(gy + t)
+                        } else {
+                            px = sx(gx + t, w)
+                            py = sy(gy + (if (d.second > 0) 1f else 0f))
+                        }
+                        canvas.drawCircle(px, py, rr, terPaint)
+                    }
+                }
+            }
         }
 
-        // 3. Le sable (plage + rivage)
+        // 2. Hauts-fonds : voile sable + reflets (peinture simple, pas de shader)
+        terPaint.shader = null
+        terPaint.color = Color.argb(80, 240, 220, 160)
+        layer({ it == World.TER_SHALLOW || it == World.TER_SHORE || it == World.TER_SAND ||
+                it == World.TER_GRASS || it == World.TER_DIRT || it == World.TER_EARTH },
+            2, 0.2f, 0.4f, 101)
+        terPaint.color = Color.BLACK
+
+        // 3. Le sable (tout ce qui n'est pas eau)
         useTer(sSand, 1.4f)
-        for (gy in y0..y1) for (gx in x0..x1) {
-            if (!world.inside(gx, gy)) continue
-            val t = world.terrain[world.idx(gx, gy)]
-            if (t != World.TER_SAND && t != World.TER_SHORE && t != World.TER_GRASS &&
-                t != World.TER_DIRT && t != World.TER_EARTH
-            ) continue
-            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), r, terPaint)
-        }
+        layer({ it == World.TER_SAND || it == World.TER_SHORE || it == World.TER_GRASS ||
+                it == World.TER_DIRT || it == World.TER_EARTH },
+            2, 0.22f, 0.45f, 202)
         terPaint.shader = null
 
-        // 4. Le rivage : sable mouille et ecume qui va et vient
+        // 4. L'ecume du rivage (bande animee, par-dessus le sable)
         for (gy in y0..y1) for (gx in x0..x1) {
-            if (!world.inside(gx, gy)) continue
-            if (world.terrain[world.idx(gx, gy)] != World.TER_SHORE) continue
-            val cxx = sx(gx + 0.5f, w)
-            val cyy = sy(gy + 0.5f)
-            paint.color = Color.argb(60, 40, 130, 180)
-            canvas.drawCircle(cxx, cyy, r * 0.98f, paint)
-            val foam = 0.5f + 0.5f * sin(time * 1.2f + gx * 0.6f + gy * 1.0f)
-            paint.color = Color.argb((25 + 60 * foam).toInt(), 255, 255, 255)
-            canvas.drawCircle(cxx, cyy, r * (0.55f + 0.35f * foam), paint)
+            if (terOf(gx, gy) != World.TER_SHORE) continue
+            // seulement sur les bords qui touchent l'eau
+            for (d in listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))) {
+                val t2 = terOf(gx + d.first, gy + d.second)
+                if (t2 != World.TER_SHALLOW && t2 != World.TER_WATER) continue
+                val foam = 0.5f + 0.5f * sin(time * 1.4f + gx * 0.9f + gy * 0.7f)
+                paint.color = Color.argb((45 + 70 * foam).toInt(), 255, 255, 255)
+                val px = sx(gx + 0.5f + d.first * 0.42f, w)
+                val py = sy(gy + 0.5f + d.second * 0.42f)
+                canvas.drawCircle(px, py, tile * (0.3f + 0.15f * foam), paint)
+            }
         }
 
         // 5. L'herbe
         useTer(sGrass, 1.2f)
-        for (gy in y0..y1) for (gx in x0..x1) {
-            if (!world.inside(gx, gy)) continue
-            val t = world.terrain[world.idx(gx, gy)]
-            if (t != World.TER_GRASS && t != World.TER_DIRT && t != World.TER_EARTH) continue
-            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), r, terPaint)
-        }
+        layer({ it == World.TER_GRASS || it == World.TER_DIRT || it == World.TER_EARTH },
+            2, 0.2f, 0.42f, 303)
         terPaint.shader = null
 
-        // 6. Les chemins de terre
+        // 6. Les chemins de terre (lobes plus petits : sentier aux bords ronges)
         useTer(sEarth, 1.1f)
-        for (gy in y0..y1) for (gx in x0..x1) {
-            if (!world.inside(gx, gy)) continue
-            val t = world.terrain[world.idx(gx, gy)]
-            if (t != World.TER_DIRT && t != World.TER_EARTH) continue
-            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), tile * 0.62f, terPaint)
-        }
+        layer({ it == World.TER_DIRT || it == World.TER_EARTH }, 2, 0.14f, 0.3f, 404)
         terPaint.shader = null
     }
 

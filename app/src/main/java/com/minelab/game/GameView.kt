@@ -39,6 +39,13 @@ class GameView(context: Context) : View(context) {
     private val prefs = context.getSharedPreferences("minelab", Context.MODE_PRIVATE)
     private val audio = Audio(context)
     private var showSettings = false
+    private var showSudoku = false
+    private var showLights = false
+    private var sudokuSel = -1
+    private var sudokuShake = 0f
+    private val sudokuCells = Array(16) { RectF() }
+    private val sudokuPad = Array(5) { RectF() }
+    private val lightCells = Array(9) { RectF() }
     private val setRows = Array(Audio.ZONES.size) { RectF() }
     private val setMusic = RectF()
     private val setSfx = RectF()
@@ -65,6 +72,7 @@ class GameView(context: Context) : View(context) {
     private var pendingMini = -1
     private var pendingTorch = -1
     private var pendingDoor3 = false
+    private var pendingRune = false
 
     private var hp = 100
     private var disarmed = 0
@@ -165,7 +173,10 @@ class GameView(context: Context) : View(context) {
     private var heroDir = 0
 
     /** Un monstre. */
-    private class Mob(var x: Float, var y: Float, var hp: Int, val sprite: Int) {
+    private class Mob(
+        var x: Float, var y: Float, var hp: Int, val sprite: Int,
+        val maxHp: Int = 100, val scale: Float = 1f, val boss: Boolean = false
+    ) {
         var hitT = 0f
         var stepT = 0f
         var spawnT = 0f
@@ -370,6 +381,12 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("d3s", world.door3Spawned)
         e.putBoolean("d3o", world.door3Open)
         e.putBoolean("mobsD", world.mobsDead)
+        e.putBoolean("sud", world.sudokuSolved)
+        e.putString("sudU", world.sudokuUser.joinToString(","))
+        e.putBoolean("lgt", world.lightsSolved)
+        e.putString("lights", world.lights.joinToString(",") { if (it) "1" else "0" })
+        e.putInt("wave", world.wave)
+        e.putBoolean("boss", world.bossDefeated)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -428,6 +445,20 @@ class GameView(context: Context) : View(context) {
         if (prefs.getBoolean("sk2", false)) { world.sokoban2Spawned = true }
         if (prefs.getBoolean("d3s", false)) world.spawnDoor3AndMobs()
         world.mobsDead = prefs.getBoolean("mobsD", false)
+        world.sudokuSolved = prefs.getBoolean("sud", false)
+        val su = prefs.getString("sudU", "") ?: ""
+        if (su.isNotBlank()) {
+            val parts = su.split(",")
+            if (parts.size == 16) for (k in 0 until 16) world.sudokuUser[k] = parts[k].trim().toIntOrNull() ?: 0
+        }
+        val lg = prefs.getString("lights", "") ?: ""
+        if (lg.isNotBlank()) {
+            val parts = lg.split(",")
+            if (parts.size == 9) for (k in 0 until 9) world.lights[k] = parts[k].trim() == "1"
+        }
+        if (prefs.getBoolean("lgt", false)) world.openRuneDoor()
+        world.wave = prefs.getInt("wave", 0)
+        if (prefs.getBoolean("boss", false)) world.bossVictory()
         if (prefs.getBoolean("d3o", false)) world.openDoor3()
         mobs.clear()
         val ms = prefs.getString("mobs", "") ?: ""
@@ -526,6 +557,7 @@ class GameView(context: Context) : View(context) {
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         attackCd = (attackCd - dt).coerceAtLeast(0f)
+        sudokuShake = (sudokuShake - dt).coerceAtLeast(0f)
         attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
 
@@ -553,7 +585,9 @@ class GameView(context: Context) : View(context) {
             }
         }
 
-        if (gameOver || victory || showMenu || showInv || showHelp || showMap || showSettings || miniPlate >= 0) return
+        if (gameOver || victory || showMenu || showInv || showHelp || showMap || showSettings ||
+            showSudoku || showLights || miniPlate >= 0
+        ) return
 
         updateMobs(dt)
 
@@ -621,13 +655,17 @@ class GameView(context: Context) : View(context) {
                 showMsg("La porte s'ouvre sur une salle plongee dans le noir...")
             } else if (pendingDoor2) {
                 pendingDoor2 = false
-                showMsg("Cette porte est scellee par une magie ancienne. (Prochaine mise a jour !)")
+                showMsg("Porte scellee. Elle ne s'ouvrira que de l'autre cote...")
             } else if (pendingMini >= 0) {
                 val p = pendingMini; pendingMini = -1
                 openMini(p)
             } else if (pendingTorch >= 0) {
                 val t = pendingTorch; pendingTorch = -1
                 lightTorch(t)
+            } else if (pendingRune) {
+                pendingRune = false
+                if (world.lightsSolved) showMsg("La porte est deja ouverte.")
+                else { showLights = true; showMsg("Neuf runes... faites-les toutes briller !") }
             } else if (pendingDoor3) {
                 pendingDoor3 = false
                 if (!world.mobsDead) showMsg("Les 2 monstres gardent la porte : battez-vous !")
@@ -637,6 +675,36 @@ class GameView(context: Context) : View(context) {
     }
 
     // ------------------------------------------------------------ combat
+
+    /** Vague n de la salle du boss. */
+    private fun spawnWave(n: Int) {
+        mobs.clear()
+        val sp = world.bossSpawns
+        when (n) {
+            1 -> {
+                mobs.add(Mob(cxf(sp[0]), cyf(sp[0]), 100, 0, 100))
+                mobs.add(Mob(cxf(sp[1]), cyf(sp[1]), 100, 3, 100))
+                showMsg("VAGUE 1 / 3 : deux creatures surgissent !")
+            }
+            2 -> {
+                mobs.add(Mob(cxf(sp[0]), cyf(sp[0]), 130, 1, 130))
+                mobs.add(Mob(cxf(sp[1]), cyf(sp[1]), 130, 4, 130))
+                mobs.add(Mob(cxf(sp[2]), cyf(sp[2]), 130, 6, 130))
+                showMsg("VAGUE 2 / 3 : trois nouvelles creatures !")
+            }
+            else -> {
+                mobs.add(Mob(cxf(sp[2]), cyf(sp[2]), 480, 7, 480, 2.1f, true))
+                mobs.add(Mob(cxf(sp[3]), cyf(sp[3]), 110, 2, 110))
+                mobs.add(Mob(cxf(sp[4]), cyf(sp[4]), 110, 5, 110))
+                showMsg("VAGUE 3 / 3 : LE BOSS !")
+            }
+        }
+        for (m in mobs) m.spawnT = 1f
+        audio.play("hit")
+    }
+
+    private fun cxf(i: Int) = world.cx(i) + 0.5f
+    private fun cyf(i: Int) = world.cy(i) + 0.5f
 
     private fun spawnMobs() {
         mobs.clear()
@@ -669,9 +737,10 @@ class GameView(context: Context) : View(context) {
                 if (world.isFloor(nx.toInt(), m.y.toInt())) m.x = nx
                 if (world.isFloor(m.x.toInt(), ny.toInt())) m.y = ny
             }
-            if (d < 0.85f) {
+            val reach = if (m.boss) 1.25f else 0.85f
+            if (d < reach) {
                 if (!godMode) {
-                    hp -= (16f * dt).toInt().coerceAtLeast(0)
+                    hp -= ((if (m.boss) 26f else 16f) * dt).toInt().coerceAtLeast(0)
                     if (time % 0.5f < dt) hp -= 1
                     if (hp <= 0) {
                         hp = 0
@@ -682,10 +751,23 @@ class GameView(context: Context) : View(context) {
                 damageT = 0.25f
             }
         }
-        if (alive == 0 && !world.mobsDead) {
-            world.mobsDead = true
-            showMsg("Les deux monstres sont vaincus ! La porte se deverrouille.")
-            saveGame()
+        if (alive == 0) {
+            if (world.wave in 1..3 && !world.bossDefeated) {
+                if (world.wave < 3) {
+                    world.wave++
+                    spawnWave(world.wave)
+                    saveGame()
+                } else {
+                    world.bossVictory()
+                    audio.play("win")
+                    showMsg("LE BOSS EST VAINCU ! La porte scellee s'ouvre au nord...")
+                    saveGame()
+                }
+            } else if (world.mobsSpawned && !world.mobsDead) {
+                world.mobsDead = true
+                showMsg("Les deux monstres sont vaincus ! La porte se deverrouille.")
+                saveGame()
+            }
         }
     }
 
@@ -698,7 +780,7 @@ class GameView(context: Context) : View(context) {
         var hit = false
         for (m in mobs) {
             if (m.hp <= 0) continue
-            if (hypot(m.x - fx, m.y - fy) <= 1.45f) {
+            if (hypot(m.x - fx, m.y - fy) <= (if (m.boss) 1.9f else 1.45f)) {
                 m.hp -= 40
                 m.hitT = 0.28f
                 hit = true
@@ -742,8 +824,15 @@ class GameView(context: Context) : View(context) {
             saveGame()
             return
         }
-        // L'etoile : victoire
-        if (hx == world.exitX && hy == world.exitY) {
+        // Entree dans la salle du boss : la premiere vague se declenche
+        if (world.inBossRoom(hx, hy) && world.wave == 0 && !world.bossDefeated) {
+            world.wave = 1
+            spawnWave(1)
+            saveGame()
+        }
+        // Le point de teleportation : fin de l'aventure
+        if (world.isTeleport(hx, hy)) {
+            audio.play("win")
             victory = true
             prefs.edit().putBoolean("has", false).apply()
             return
@@ -813,7 +902,7 @@ class GameView(context: Context) : View(context) {
         pendingChest = false; pendingDoor = false
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
-        pendingMini = -1; pendingTorch = -1; pendingDoor3 = false
+        pendingMini = -1; pendingTorch = -1; pendingDoor3 = false; pendingRune = false
     }
 
     private fun hurt(n: Int, why: String) {
@@ -886,12 +975,58 @@ class GameView(context: Context) : View(context) {
 
     private fun openChest3() {
         if (world.chest3Open) { showMsg("Le coffre-fort est vide."); return }
+        if (!world.sudokuSolved) {
+            showSudoku = true
+            sudokuSel = -1
+            showMsg("Un cadenas a chiffres... resolvez la grille !")
+            return
+        }
         audio.play("chest")
         world.chest3Open = true
         swordOwned = true
         energyCount++
         flagsLeft += 5
         showMsg("Le coffre-fort s'ouvre : une EPEE, une canette d'energie et 5 drapeaux !")
+    }
+
+    private fun sudokuTap(c: Int) {
+        if (world.sudokuGiven[c] != 0) return
+        sudokuSel = c
+        audio.play("flag")
+    }
+
+    private fun sudokuPut(v: Int) {
+        val c = sudokuSel
+        if (c < 0 || world.sudokuGiven[c] != 0) return
+        world.sudokuUser[c] = v
+        audio.play("flag")
+        if (world.sudokuUser.all { it != 0 }) {
+            if (world.sudokuOk()) {
+                world.sudokuSolved = true
+                showSudoku = false
+                audio.play("win")
+                showMsg("Clic ! Le cadenas cede. Retouchez le coffre-fort.")
+                saveGame()
+            } else {
+                sudokuShake = 0.6f
+                audio.play("error")
+                for (i in 0 until 16) if (world.sudokuGiven[i] == 0) world.sudokuUser[i] = 0
+                sudokuSel = -1
+            }
+        }
+    }
+
+    // ---------- PORTE A RUNES : lights out
+    private fun lightsTap(i: Int) {
+        world.toggleLight(i)
+        audio.play("flag")
+        if (world.lightsAllOn()) {
+            world.openRuneDoor()
+            showLights = false
+            audio.play("win")
+            showMsg("Les 9 runes brillent ! La porte s'ouvre sur la salle du BOSS.")
+            saveGame()
+        }
     }
 
     private fun openDoor() {
@@ -1069,6 +1204,7 @@ class GameView(context: Context) : View(context) {
                 world.door1 -> pendingDoor1 = true
                 world.door2 -> pendingDoor2 = true
                 world.door3 -> pendingDoor3 = true
+                world.runeDoor -> pendingRune = true
                 else -> pendingDoor = true
             }
             return
@@ -1181,6 +1317,8 @@ class GameView(context: Context) : View(context) {
         }
         if (showMap) drawMap(canvas, w, h)
         if (showSettings) drawSettings(canvas, w, h)
+        if (showSudoku) drawSudoku(canvas, w, h)
+        if (showLights) drawLights(canvas, w, h)
         if (miniPlate >= 0) drawMini(canvas, w, h)
         if (showMenu) drawMenu(canvas, w, h)
         if (showInv) drawInventory(canvas, w, h)
@@ -1408,6 +1546,7 @@ class GameView(context: Context) : View(context) {
                         for (s in 0..3) if (i == world.simonTiles[s]) k = s
                         if (k >= 0) drawSimonTile(canvas, k)
                         if (i == world.altar) drawAltar(canvas)
+                        if (world.isTeleport(gx, gy)) drawTeleport(canvas)
                         if (isExit) drawStar(canvas)
                         if (i in world.hearts) drawHeart(canvas)
                         val n = world.countAround(gx, gy)
@@ -1609,17 +1748,17 @@ class GameView(context: Context) : View(context) {
                 paint.color = Color.argb((160 * m.spawnT).toInt(), 190, 70, 220)
                 canvas.drawCircle(cxx, cyy - tile * 0.1f, tile * (0.3f + m.spawnT * 0.6f), paint)
             }
-            drawSprite(canvas, sMonsters[m.sprite], cxx, cyy - tile * 0.14f - bounce, tile * 1.15f * grow, alpha)
+            drawSprite(canvas, sMonsters[m.sprite], cxx, cyy - tile * 0.14f * m.scale - bounce, tile * 1.15f * m.scale * grow, alpha)
             if (m.hitT > 0f) {
                 paint.color = Color.argb((150 * (m.hitT / 0.28f)).toInt(), 255, 70, 60)
                 canvas.drawCircle(cxx, cyy - tile * 0.15f, tile * 0.5f, paint)
             }
             // Barre de vie
-            val bw = tile * 0.6f
+            val bw = tile * 0.6f * m.scale
             paint.color = Color.argb(200, 25, 25, 30)
             canvas.drawRect(cxx - bw, cyy - tile * 0.78f, cxx + bw, cyy - tile * 0.68f, paint)
-            paint.color = Color.rgb(220, 60, 55)
-            canvas.drawRect(cxx - bw, cyy - tile * 0.78f, cxx - bw + 2 * bw * (m.hp / 100f), cyy - tile * 0.68f, paint)
+            paint.color = if (m.boss) Color.rgb(255, 140, 40) else Color.rgb(220, 60, 55)
+            canvas.drawRect(cxx - bw, cyy - tile * 0.78f, cxx - bw + 2 * bw * (m.hp.toFloat() / m.maxHp), cyy - tile * 0.68f, paint)
         }
     }
 
@@ -1650,6 +1789,36 @@ class GameView(context: Context) : View(context) {
         if (flashing) {
             paint.color = Color.argb(120, 255, 255, 255)
             canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.45f, paint)
+        }
+    }
+
+    /** Portail de teleportation : apparait au centre apres le boss. */
+    private fun drawTeleport(canvas: Canvas) {
+        val cxx = rect.centerX()
+        val cyy = rect.centerY()
+        for (k in 0..2) {
+            val r = tile * (0.45f - k * 0.11f) * (0.85f + 0.15f * sin(time * 3f + k))
+            paint.color = Color.argb(70 + k * 45, 120 + k * 40, 90 + k * 50, 255)
+            canvas.drawCircle(cxx, cyy, r, paint)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.05f
+        for (k in 0..1) {
+            val a = time * (60f + k * 40f) % 360f
+            canvas.save()
+            canvas.rotate(a, cxx, cyy)
+            paint.color = Color.argb(200, 190, 160, 255)
+            tmpRect.set(cxx - tile * 0.33f, cyy - tile * 0.33f, cxx + tile * 0.33f, cyy + tile * 0.33f)
+            canvas.drawArc(tmpRect, 0f, 90f, false, paint)
+            canvas.drawArc(tmpRect, 180f, 90f, false, paint)
+            canvas.restore()
+        }
+        paint.style = Paint.Style.FILL
+        for (k in 0..5) {
+            val a = time * 2.2f + k * 1.05f
+            val rr = tile * (0.12f + 0.22f * ((time * 0.7f + k * 0.17f) % 1f))
+            paint.color = Color.argb(180, 220, 200, 255)
+            canvas.drawCircle(cxx + cos(a) * rr, cyy + sin(a) * rr, tile * 0.03f, paint)
         }
     }
 
@@ -1921,7 +2090,10 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
-            world.door3Open -> "Objectif : rejoindre l'ETOILE !"
+            world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
+            world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"
+            world.lightsSolved -> "Objectif : entrer dans la salle du BOSS."
+            world.door3Open -> "Objectif : suivre le couloir jusqu'a la porte a runes."
             world.mobsSpawned && !world.mobsDead -> "Objectif : battre les 2 monstres (bouton epee) !"
             world.sokoban2Spawned -> "Objectif : ranger les 7 caisses ($c2/7). Attention a l'ordre !"
             world.lighterTaken -> "Objectif : allumer les 4 torches (${world.torchLit.size}/4)."
@@ -2137,7 +2309,19 @@ class GameView(context: Context) : View(context) {
             "  inatteignable ! Bouton ↺ pour tout recommencer.",
             "• Resolu -> une porte apparait + 2 MONSTRES.",
             "• Equipez l'epee et utilisez le bouton epee pour frapper !",
-            "• Monstres vaincus -> la porte s'ouvre -> ETOILE = victoire.",
+            "• Monstres vaincus -> la porte s'ouvre sur un long couloir.",
+            "",
+            "6) LE COFFRE-FORT : un cadenas a SUDOKU 4x4 (1 a 4 par ligne,",
+            "   colonne et bloc 2x2). Resolu -> l'EPEE !",
+            "",
+            "7) LA PORTE AUX 9 RUNES (bout du couloir)",
+            "• Toucher une rune l'inverse ainsi que ses 4 voisines.",
+            "• Faites-les toutes briller -> la salle du BOSS s'ouvre.",
+            "",
+            "8) LA SALLE DU BOSS : 3 vagues de monstres, puis le BOSS.",
+            "• Victoire -> la porte scellee s'ouvre et un PORTAIL",
+            "  apparait au centre de la salle des couleurs. Marchez",
+            "  dessus pour terminer l'aventure !",
             "",
             "Touchez l'ecran pour fermer."
         )
@@ -2214,6 +2398,142 @@ class GameView(context: Context) : View(context) {
     }
 
     /** Ecran de reglages : une musique par salle, volume, bruitages. */
+    /** Le cadenas du coffre-fort : sudoku 4x4 (chiffres 1 a 4). */
+    private fun drawSudoku(canvas: Canvas, w: Float, h: Float) {
+        drawStoneBg(canvas, w, h, 214)
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.03f
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("CADENAS DU COFFRE-FORT", w / 2f, h * 0.1f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(190, 175, 140)
+        paint.textSize = h * 0.016f
+        canvas.drawText("Chaque ligne, chaque colonne et chaque bloc 2x2", w / 2f, h * 0.135f, paint)
+        canvas.drawText("doivent contenir 1, 2, 3 et 4.", w / 2f, h * 0.158f, paint)
+
+        val shake = if (sudokuShake > 0f) sin(time * 60f) * w * 0.012f * sudokuShake else 0f
+        val gs = min(w * 0.8f, h * 0.4f)
+        val cs = gs / 4f
+        val gx0 = (w - gs) / 2f + shake
+        val gy0 = h * 0.2f
+
+        for (c in 0 until 16) {
+            val cxi = c % 4
+            val cyi = c / 4
+            val r = sudokuCells[c]
+            r.set(gx0 + cxi * cs, gy0 + cyi * cs, gx0 + cxi * cs + cs, gy0 + cyi * cs + cs)
+            tmpRect.set(r.left + cs * 0.04f, r.top + cs * 0.04f, r.right - cs * 0.04f, r.bottom - cs * 0.04f)
+            val given = world.sudokuGiven[c] != 0
+            val sel = c == sudokuSel
+            paint.color = when {
+                given -> Color.rgb(58, 54, 48)
+                sel -> Color.rgb(96, 78, 36)
+                else -> Color.rgb(38, 40, 52)
+            }
+            canvas.drawRoundRect(tmpRect, cs * 0.1f, cs * 0.1f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = cs * 0.035f
+            paint.color = if (sel) Color.rgb(255, 205, 90) else Color.rgb(120, 100, 60)
+            canvas.drawRoundRect(tmpRect, cs * 0.1f, cs * 0.1f, paint)
+            paint.style = Paint.Style.FILL
+            val v = world.sudokuUser[c]
+            if (v != 0) {
+                paint.color = if (given) Color.rgb(230, 220, 195) else Color.rgb(120, 200, 240)
+                paint.isFakeBoldText = true
+                paint.textSize = cs * 0.55f
+                canvas.drawText("$v", r.centerX(), r.centerY() + cs * 0.2f, paint)
+                paint.isFakeBoldText = false
+            }
+        }
+        // Separations des blocs 2x2
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = gs * 0.014f
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawLine(gx0 + gs / 2f, gy0, gx0 + gs / 2f, gy0 + gs, paint)
+        canvas.drawLine(gx0, gy0 + gs / 2f, gx0 + gs, gy0 + gs / 2f, paint)
+        canvas.drawRect(gx0, gy0, gx0 + gs, gy0 + gs, paint)
+        paint.style = Paint.Style.FILL
+
+        // Pave numerique
+        val pw = gs / 5.2f
+        val py = gy0 + gs + h * 0.05f
+        val px0 = (w - pw * 5f - w * 0.02f * 4f) / 2f
+        for (k in 0 until 5) {
+            val r = sudokuPad[k]
+            r.set(px0 + k * (pw + w * 0.02f), py, px0 + k * (pw + w * 0.02f) + pw, py + pw)
+            drawFrame(canvas, r, if (k == 4) Color.rgb(70, 40, 40) else Color.rgb(46, 44, 54),
+                if (k == 4) Color.rgb(200, 100, 90) else Color.rgb(168, 136, 72))
+            paint.color = Color.rgb(248, 238, 214)
+            paint.isFakeBoldText = true
+            paint.textSize = pw * 0.45f
+            canvas.drawText(if (k == 4) "X" else "${k + 1}", r.centerX(), r.centerY() + pw * 0.16f, paint)
+            paint.isFakeBoldText = false
+        }
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.017f
+        canvas.drawText("Touchez une case, puis un chiffre.  (X = effacer)", w / 2f, py + pw + h * 0.05f, paint)
+        canvas.drawText("Touchez tout en bas pour fermer", w / 2f, h * 0.95f, paint)
+        drawEmbers(canvas, w, h)
+    }
+
+    /** La porte a runes : faire briller les 9 runes (chaque rune bascule ses voisines). */
+    private fun drawLights(canvas: Canvas, w: Float, h: Float) {
+        drawStoneBg(canvas, w, h, 214)
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.03f
+        paint.color = Color.rgb(255, 205, 90)
+        canvas.drawText("LA PORTE AUX NEUF RUNES", w / 2f, h * 0.11f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(190, 175, 140)
+        paint.textSize = h * 0.016f
+        canvas.drawText("Toucher une rune l'inverse, ainsi que ses 4 voisines.", w / 2f, h * 0.15f, paint)
+        canvas.drawText("Faites-les TOUTES briller.", w / 2f, h * 0.175f, paint)
+
+        val gs = min(w * 0.76f, h * 0.4f)
+        val cs = gs / 3f
+        val gx0 = (w - gs) / 2f
+        val gy0 = h * 0.23f
+        for (k in 0 until 9) {
+            val cxi = k % 3
+            val cyi = k / 3
+            val r = lightCells[k]
+            r.set(gx0 + cxi * cs, gy0 + cyi * cs, gx0 + cxi * cs + cs, gy0 + cyi * cs + cs)
+            tmpRect.set(r.left + cs * 0.06f, r.top + cs * 0.06f, r.right - cs * 0.06f, r.bottom - cs * 0.06f)
+            val on = world.lights[k]
+            if (on) {
+                val pulse = 0.5f + 0.5f * sin(time * 3f + k)
+                paint.color = Color.argb((60 + 60 * pulse).toInt(), 255, 190, 80)
+                canvas.drawCircle(r.centerX(), r.centerY(), cs * 0.52f, paint)
+            }
+            paint.color = if (on) Color.rgb(126, 88, 30) else Color.rgb(36, 38, 48)
+            canvas.drawRoundRect(tmpRect, cs * 0.14f, cs * 0.14f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = cs * 0.05f
+            paint.color = if (on) Color.rgb(255, 210, 100) else Color.rgb(90, 92, 104)
+            canvas.drawRoundRect(tmpRect, cs * 0.14f, cs * 0.14f, paint)
+            // La rune
+            paint.strokeWidth = cs * 0.07f
+            paint.color = if (on) Color.rgb(255, 240, 190) else Color.rgb(70, 74, 88)
+            val cxr = r.centerX()
+            val cyr = r.centerY()
+            val s2 = cs * 0.22f
+            canvas.drawLine(cxr, cyr - s2, cxr, cyr + s2, paint)
+            canvas.drawLine(cxr - s2 * 0.8f, cyr - s2 * 0.3f, cxr, cyr - s2, paint)
+            canvas.drawLine(cxr + s2 * 0.8f, cyr + s2 * 0.3f, cxr, cyr + s2, paint)
+            paint.style = Paint.Style.FILL
+        }
+        val n = world.lights.count { it }
+        paint.color = Color.rgb(255, 225, 140)
+        paint.textSize = h * 0.022f
+        canvas.drawText("$n / 9 runes allumees", w / 2f, gy0 + gs + h * 0.06f, paint)
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.017f
+        canvas.drawText("Touchez tout en bas pour fermer", w / 2f, h * 0.95f, paint)
+        drawEmbers(canvas, w, h)
+    }
+
     private fun drawSettings(canvas: Canvas, w: Float, h: Float) {
         drawStoneBg(canvas, w, h, 210)
         paint.textAlign = Paint.Align.CENTER
@@ -2348,7 +2668,8 @@ class GameView(context: Context) : View(context) {
         val am = e.actionMasked
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&
-            !showMenu && !showInv && !showHelp && !showMap && !showSettings && !gameOver && !victory
+            !showMenu && !showInv && !showHelp && !showMap && !showSettings &&
+            !showSudoku && !showLights && !gameOver && !victory
         ) {
             when (am) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -2379,7 +2700,9 @@ class GameView(context: Context) : View(context) {
                 dragging = false
             }
             MotionEvent.ACTION_MOVE -> {
-                if (state != PLAYING || showMenu || showInv || showHelp || showMap || showSettings || miniPlate >= 0) return true
+                if (state != PLAYING || showMenu || showInv || showHelp || showMap || showSettings ||
+                    showSudoku || showLights || miniPlate >= 0
+                ) return true
                 val dx = e.x - lastX
                 val dy = e.y - lastY
                 if (!dragging && hypot(e.x - downX, e.y - downY) > tile * 0.35f) dragging = true
@@ -2408,6 +2731,20 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun handleUp(e: MotionEvent): Boolean {
+        if (showSudoku) {
+            for (c in 0 until 16) if (sudokuCells[c].contains(e.x, e.y)) { sudokuTap(c); return true }
+            for (k in 0 until 5) if (sudokuPad[k].contains(e.x, e.y)) {
+                sudokuPut(if (k == 4) 0 else k + 1)
+                return true
+            }
+            if (e.y > height * 0.9f) showSudoku = false
+            return true
+        }
+        if (showLights) {
+            for (k in 0 until 9) if (lightCells[k].contains(e.x, e.y)) { lightsTap(k); return true }
+            if (e.y > height * 0.9f) showLights = false
+            return true
+        }
         if (showSettings) {
             when {
                 setMusic.contains(e.x, e.y) -> { audio.musicOn = !audio.musicOn; saveAudioPrefs() }

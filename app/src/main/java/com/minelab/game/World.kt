@@ -38,7 +38,7 @@ class World(
 
     val wid = maxOf(hallW + 24, 40)
     val uy0 = maxOf(hallH, 11) + 3
-    val hei = uy0 + 14
+    val hei = uy0 + 22
 
     val grid = IntArray(wid * hei) { WALL }
 
@@ -60,7 +60,6 @@ class World(
     private val crates2 = ArrayList<Int>()
     private val roomB = ArrayList<Int>()
     private val roomTorch = ArrayList<Int>()
-    private val roomFinal = ArrayList<Int>()
 
     var chest = -1
     var chestOpen = false
@@ -86,6 +85,27 @@ class World(
     var door3Open = false
 
     // Salle des torches
+    // Coffre-fort : sudoku 4x4
+    val sudokuGiven = IntArray(16)
+    val sudokuSol = IntArray(16)
+    val sudokuUser = IntArray(16)
+    var sudokuSolved = false
+
+    // Porte a runes : lights out 3x3
+    var runeDoor = -1
+    val lights = BooleanArray(9)
+    var lightsSolved = false
+
+    // Salle du boss
+    var wave = 0
+    var bossDefeated = false
+    val bossSpawns = ArrayList<Int>()
+    private val roomBoss = ArrayList<Int>()
+    private val corridor2 = ArrayList<Int>()
+
+    // Teleportation (apparait apres le boss)
+    var teleportActive = false
+
     var lighter = -1
     var lighterTaken = false
     val torches = IntArray(4)
@@ -123,6 +143,9 @@ class World(
         buildStorageRoom()
         buildUnderground()
         buildTorchRoom()
+        buildCorridor2()
+        buildSudoku()
+        buildLights()
         placeMines()
         placeHearts()
         totalMines = mines.size
@@ -248,13 +271,62 @@ class World(
 
         door3 = idx(tx0 + 13, ty0 + 5)
 
-        // Salle de l'etoile
-        for (y in ty0 + 4..ty0 + 6) for (x in tx0 + 14..tx0 + 16) grid[idx(x, y)] = FLOOR
-        exitX = tx0 + 15
-        exitY = ty0 + 5
-
         for (y in ty0..ty0 + 10) for (x in tx0..tx0 + 12) if (isFloor(x, y)) roomTorch.add(idx(x, y))
-        for (y in ty0 + 4..ty0 + 6) for (x in tx0 + 14..tx0 + 16) roomFinal.add(idx(x, y))
+    }
+
+    /**
+     * [8] LE GRAND COULOIR : part de la porte 3, longe le donjon et redescend
+     *     jusqu'a une PORTE A RUNES (enigme "lights out") qui ouvre la salle du boss.
+     */
+    private fun buildCorridor2() {
+        val cy = ty0 + 5
+        val by0 = uy0 + 11          // haut de la salle du boss
+        val bcy = by0 + 5           // ligne d'entree de la salle du boss
+
+        // vers la droite
+        for (x in tx0 + 14..tx0 + 16) corridor2.add(idx(x, cy))
+        // descente
+        for (y in cy..bcy) corridor2.add(idx(tx0 + 16, y))
+        // vers la gauche jusqu'a la porte a runes
+        for (x in 22..tx0 + 16) corridor2.add(idx(x, bcy))
+        for (c in corridor2) grid[c] = FLOOR
+
+        runeDoor = idx(21, bcy)
+        grid[runeDoor] = DOOR
+
+        // Salle du boss (9 x 9), sous la salle des couleurs
+        for (y in by0..by0 + 8) for (x in 12..20) grid[idx(x, y)] = FLOOR
+        for (y in by0..by0 + 8) for (x in 12..20) roomBoss.add(idx(x, y))
+
+        bossSpawns.add(idx(14, by0 + 2))
+        bossSpawns.add(idx(18, by0 + 2))
+        bossSpawns.add(idx(16, by0 + 1))
+        bossSpawns.add(idx(13, by0 + 6))
+        bossSpawns.add(idx(19, by0 + 6))
+
+        // La porte scellee (au nord) redonne sur la salle des couleurs
+        // -> elle s'ouvre quand le boss est vaincu.
+
+        // Le point de teleportation apparait au centre de la salle des couleurs
+        exitX = 16
+        exitY = uy0 + 6
+    }
+
+    fun inBossRoom(x: Int, y: Int) = x in 12..20 && y in uy0 + 11..uy0 + 19
+
+    fun openRuneDoor() {
+        lightsSolved = true
+        grid[runeDoor] = FLOOR
+        revealed.add(runeDoor)
+        revealed.addAll(roomBoss)
+    }
+
+    /** Boss vaincu : la porte scellee s'ouvre, la teleportation apparait. */
+    fun bossVictory() {
+        bossDefeated = true
+        grid[door2] = FLOOR
+        revealed.add(door2)
+        teleportActive = true
     }
 
     fun spawnAfterSimon() {
@@ -291,10 +363,81 @@ class World(
         door3Open = true
         grid[door3] = FLOOR
         revealed.add(door3)
-        revealed.addAll(roomFinal)
+        revealed.addAll(corridor2)
+        revealed.add(runeDoor)
     }
 
     fun sokoban2Solved(): Boolean = sokoban2Spawned && targets2.all { it in blocks }
+
+    // ------------------------------------------------------------ enigmes
+
+    /** Sudoku 4x4 (chiffres 1-4, blocs 2x2), reproductible via la graine. */
+    private fun buildSudoku() {
+        // Grille valide de base
+        val base = intArrayOf(
+            1, 2, 3, 4,
+            3, 4, 1, 2,
+            2, 1, 4, 3,
+            4, 3, 2, 1
+        )
+        // Permutation des chiffres
+        val digits = intArrayOf(1, 2, 3, 4).toMutableList()
+        digits.shuffle(rnd)
+        for (i in 0 until 16) sudokuSol[i] = digits[base[i] - 1]
+        // Echange des lignes dans une bande, et des colonnes dans une pile
+        if (rnd.nextBoolean()) swapRows(0, 1)
+        if (rnd.nextBoolean()) swapRows(2, 3)
+        if (rnd.nextBoolean()) swapCols(0, 1)
+        if (rnd.nextBoolean()) swapCols(2, 3)
+
+        // On laisse 7 indices
+        val cells = (0 until 16).toMutableList()
+        cells.shuffle(rnd)
+        for (i in 0 until 16) sudokuGiven[i] = 0
+        for (k in 0 until 7) sudokuGiven[cells[k]] = sudokuSol[cells[k]]
+        for (i in 0 until 16) sudokuUser[i] = sudokuGiven[i]
+    }
+
+    private fun swapRows(a: Int, b: Int) {
+        for (c in 0 until 4) {
+            val t = sudokuSol[a * 4 + c]
+            sudokuSol[a * 4 + c] = sudokuSol[b * 4 + c]
+            sudokuSol[b * 4 + c] = t
+        }
+    }
+
+    private fun swapCols(a: Int, b: Int) {
+        for (r in 0 until 4) {
+            val t = sudokuSol[r * 4 + a]
+            sudokuSol[r * 4 + a] = sudokuSol[r * 4 + b]
+            sudokuSol[r * 4 + b] = t
+        }
+    }
+
+    fun sudokuOk(): Boolean {
+        for (i in 0 until 16) if (sudokuUser[i] != sudokuSol[i]) return false
+        return true
+    }
+
+    /** Lights out 3x3 : toutes les runes doivent briller. */
+    private fun buildLights() {
+        for (i in 0 until 9) lights[i] = true
+        // On melange en appliquant des coups valides : la grille reste soluble
+        repeat(6 + rnd.nextInt(4)) { toggleLight(rnd.nextInt(9)) }
+        if (lightsAllOn()) toggleLight(rnd.nextInt(9))
+    }
+
+    fun toggleLight(i: Int) {
+        val x = i % 3
+        val y = i / 3
+        lights[i] = !lights[i]
+        if (x > 0) lights[i - 1] = !lights[i - 1]
+        if (x < 2) lights[i + 1] = !lights[i + 1]
+        if (y > 0) lights[i - 3] = !lights[i - 3]
+        if (y < 2) lights[i + 3] = !lights[i + 3]
+    }
+
+    fun lightsAllOn(): Boolean = lights.all { it }
 
     // ------------------------------------------------------------ mines
 
@@ -361,6 +504,8 @@ class World(
         return i in revealed
     }
 
+    fun isTeleport(x: Int, y: Int) = teleportActive && x == exitX && y == exitY
+
     fun canPushInto(x: Int, y: Int): Boolean {
         if (!isFloor(x, y)) return false
         val i = idx(x, y)
@@ -368,7 +513,7 @@ class World(
         if (chest2Spawned && i == chest2) return false
         if (chest3Spawned && i == chest3) return false
         if (i == altar || isTorch(i)) return false
-        if (i == door || i == door1 || i == door2 || i == door3) return false
+        if (i == door || i == door1 || i == door2 || i == door3 || i == runeDoor) return false
         if (x == trapX && y == trapY) return false
         if (i in plates && i !in plateSolved) return false
         return true

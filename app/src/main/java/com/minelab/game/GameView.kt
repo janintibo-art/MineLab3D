@@ -4,6 +4,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Matrix
+import android.graphics.Shader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -125,6 +128,30 @@ class GameView(context: Context) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
+
+    /** Peintures a texture repetee : le sol est continu, sans aucune couture. */
+    private val terPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
+    private val shaderCache = HashMap<Int, BitmapShader>()
+    private val shMat = Matrix()
+
+    private fun terShader(bmp: Bitmap, scale: Float): BitmapShader {
+        val key = System.identityHashCode(bmp)
+        val sh = shaderCache.getOrPut(key) {
+            BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        }
+        val originX = width / 2f - camX * tile
+        val originY = (boardTop + boardBottom) / 2f - camY * tile
+        shMat.reset()
+        shMat.setScale(tile * scale / bmp.width, tile * scale / bmp.height)
+        shMat.postTranslate(originX, originY)
+        sh.setLocalMatrix(shMat)
+        return sh
+    }
+
+    private fun useTer(bmp: Bitmap, scale: Float = 1f, alpha: Int = 255) {
+        terPaint.shader = terShader(bmp, scale)
+        terPaint.alpha = alpha
+    }
     private var lastTime = System.nanoTime()
 
     // Sprites
@@ -1767,6 +1794,10 @@ class GameView(context: Context) : View(context) {
         val gap = tile * 0.045f
         val rad = tile * 0.16f
 
+        // L'ile : on peint le terrain en couches continues, avant tout le reste
+        val islandVisible = cgy + ny >= world.iy0 && cgy - ny <= world.iy0 + 34
+        if (islandVisible) drawIslandTerrain(canvas, w, cgx, cgy, nx, ny)
+
         for (gy in cgy - ny..cgy + ny) {
             for (gx in cgx - nx..cgx + nx) {
                 if (!world.inside(gx, gy)) continue
@@ -1776,9 +1807,9 @@ class GameView(context: Context) : View(context) {
                 rect.set(l + gap, t + gap, l + tile - gap, t + tile - gap)
                 val i = world.idx(gx, gy)
 
-                // --- L'ILE (surface)
+                // --- L'ILE (surface) : terrain deja peint, on ne pose que les objets
                 val ter = world.terrain[i]
-                if (ter != World.TER_NONE) { drawIslandCell(canvas, gx, gy, i, ter); continue }
+                if (ter != World.TER_NONE) { drawIslandObjects(canvas, gx, gy, i, ter); continue }
 
                 if (world.grid[i] == World.WALL) { drawWall(canvas, gx, gy); continue }
                 if (world.grid[i] == World.DOOR) { drawDoor(canvas); continue }
@@ -1868,79 +1899,129 @@ class GameView(context: Context) : View(context) {
     }
 
     /** Une case de l'ile : mer animee, plage, herbe, chemin, maison. */
-    private fun drawIslandCell(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
+    /**
+     * Le terrain de l'ile, peint en couches successives avec des textures repetees.
+     * Chaque couche est posee en "taches" rondes qui se chevauchent : les cotes
+     * sont organiques, il n'y a ni couture ni escalier de carres.
+     */
+    private fun drawIslandTerrain(canvas: Canvas, w: Float, cgx: Int, cgy: Int, nx: Int, ny: Int) {
+        val x0 = cgx - nx
+        val x1 = cgx + nx
+        val y0 = maxOf(cgy - ny, world.iy0)
+        val y1 = minOf(cgy + ny, world.iy0 + 34)
+        if (y0 > y1) return
+        val r = tile * 0.78f
+
+        // 1. La mer, partout, en fond continu
+        useTer(sWater, 1.6f)
+        canvas.drawRect(
+            sx(x0.toFloat(), w), sy(y0.toFloat()),
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), terPaint
+        )
+        terPaint.shader = null
+        // Houle
+        val wv = 0.5f + 0.5f * sin(time * 0.9f)
+        paint.color = Color.argb((12 + 14 * wv).toInt(), 190, 235, 255)
+        canvas.drawRect(
+            sx(x0.toFloat(), w), sy(y0.toFloat()),
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), paint
+        )
+
+        // 2. Les hauts-fonds : l'eau s'eclaircit, le sable transparait
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (!world.inside(gx, gy)) continue
+            if (world.terrain[world.idx(gx, gy)] != World.TER_SHALLOW) continue
+            val cxx = sx(gx + 0.5f, w)
+            val cyy = sy(gy + 0.5f)
+            paint.color = Color.argb(85, 240, 220, 160)
+            canvas.drawCircle(cxx, cyy, r, paint)
+            val f = 0.5f + 0.5f * sin(time * 1.5f + gx * 0.8f + gy * 0.6f)
+            paint.color = Color.argb((20 + 30 * f).toInt(), 255, 255, 255)
+            canvas.drawCircle(cxx, cyy, r * 0.92f, paint)
+        }
+
+        // 3. Le sable (plage + rivage)
+        useTer(sSand, 1.4f)
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (!world.inside(gx, gy)) continue
+            val t = world.terrain[world.idx(gx, gy)]
+            if (t != World.TER_SAND && t != World.TER_SHORE && t != World.TER_GRASS &&
+                t != World.TER_DIRT && t != World.TER_EARTH
+            ) continue
+            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), r, terPaint)
+        }
+        terPaint.shader = null
+
+        // 4. Le rivage : sable mouille et ecume qui va et vient
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (!world.inside(gx, gy)) continue
+            if (world.terrain[world.idx(gx, gy)] != World.TER_SHORE) continue
+            val cxx = sx(gx + 0.5f, w)
+            val cyy = sy(gy + 0.5f)
+            paint.color = Color.argb(60, 40, 130, 180)
+            canvas.drawCircle(cxx, cyy, r * 0.98f, paint)
+            val foam = 0.5f + 0.5f * sin(time * 1.2f + gx * 0.6f + gy * 1.0f)
+            paint.color = Color.argb((25 + 60 * foam).toInt(), 255, 255, 255)
+            canvas.drawCircle(cxx, cyy, r * (0.55f + 0.35f * foam), paint)
+        }
+
+        // 5. L'herbe
+        useTer(sGrass, 1.2f)
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (!world.inside(gx, gy)) continue
+            val t = world.terrain[world.idx(gx, gy)]
+            if (t != World.TER_GRASS && t != World.TER_DIRT && t != World.TER_EARTH) continue
+            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), r, terPaint)
+        }
+        terPaint.shader = null
+
+        // 6. Les chemins de terre
+        useTer(sEarth, 1.1f)
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (!world.inside(gx, gy)) continue
+            val t = world.terrain[world.idx(gx, gy)]
+            if (t != World.TER_DIRT && t != World.TER_EARTH) continue
+            canvas.drawCircle(sx(gx + 0.5f, w), sy(gy + 0.5f), tile * 0.62f, terPaint)
+        }
+        terPaint.shader = null
+    }
+
+    /** Ce qui se pose SUR le terrain de l'ile : decor, portes, portail. */
+    private fun drawIslandObjects(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
         // Interieur d'un batiment (parquet)
         if (ter == World.TER_WOOD) {
             val hn = world.interiorOf(gx, gy)
             val fl = world.houseFloor[hn] ?: 1
-            tmpRect.set(rect.left - tile * 0.05f, rect.top - tile * 0.05f, rect.right + tile * 0.05f, rect.bottom + tile * 0.05f)
-            drawTex(canvas, hfloor(fl), tmpRect)
+            useTer(hfloor(fl), 1f)
+            canvas.drawRect(
+                rect.left - tile * 0.06f, rect.top - tile * 0.06f,
+                rect.right + tile * 0.06f, rect.bottom + tile * 0.06f, terPaint
+            )
+            terPaint.shader = null
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
             if (world.houseExit.containsKey(i)) drawHouseDoor(canvas)
             return
         }
 
-        // Les tuiles se chevauchent tres legerement : aucune couture visible
-        tmpRect.set(
-            rect.left - tile * 0.055f, rect.top - tile * 0.055f,
-            rect.right + tile * 0.055f, rect.bottom + tile * 0.055f
-        )
-
-        when (ter) {
-            World.TER_WATER -> {
-                drawTex(canvas, sWater, tmpRect)
-                // Houle : un leger voile clair qui se deplace
-                val wv = 0.5f + 0.5f * sin(time * 1.1f + gx * 0.55f + gy * 0.42f)
-                paint.color = Color.argb((10 + 20 * wv).toInt(), 220, 245, 255)
-                canvas.drawRect(tmpRect, paint)
-                // Assombrissement du large
-                paint.color = Color.argb(40, 6, 40, 80)
-                canvas.drawRect(tmpRect, paint)
-            }
-            World.TER_SHALLOW -> {
-                // Haut-fond : l'eau, eclaircie, avec le sable qui transparait
-                drawTex(canvas, sWater, tmpRect)
-                paint.color = Color.argb(90, 235, 215, 150)
-                canvas.drawRect(tmpRect, paint)
-                val wv = 0.5f + 0.5f * sin(time * 1.6f + gx * 0.7f + gy * 0.5f)
-                paint.color = Color.argb((18 + 30 * wv).toInt(), 255, 255, 255)
-                canvas.drawRect(tmpRect, paint)
-            }
-            World.TER_SHORE -> {
-                // Rivage : sable mouille + un ourlet d'ecume qui va et vient
-                drawTex(canvas, sSand, tmpRect)
-                paint.color = Color.argb(70, 40, 130, 175)
-                canvas.drawRect(tmpRect, paint)
-                val foam = 0.5f + 0.5f * sin(time * 1.3f + gx * 0.5f + gy * 0.9f)
-                paint.color = Color.argb((30 + 55 * foam).toInt(), 255, 255, 255)
-                canvas.drawRect(tmpRect, paint)
-            }
-            World.TER_SAND -> drawTex(canvas, sSand, tmpRect)
-            World.TER_GRASS -> drawTex(canvas, sGrass, tmpRect)
-            World.TER_DIRT -> drawTex(canvas, sEarth, tmpRect)
-            World.TER_EARTH -> drawTex(canvas, sDirt, tmpRect)
-        }
-
-        // Decor : arbres, plantes, rochers, barques
         val dec = world.decor[i]
         if (dec != null) {
             val (dt, dn) = dec
             val size = when (dt) {
-                0 -> tile * 1.9f
-                1 -> tile * 0.85f
-                2 -> tile * 1.1f
-                else -> tile * 1.5f
+                0 -> tile * 2.0f
+                1 -> tile * 0.9f
+                2 -> tile * 1.15f
+                else -> tile * 1.55f
             }
             val dyy = when (dt) {
-                0 -> -tile * 0.42f
+                0 -> -tile * 0.45f
                 3 -> -tile * 0.08f
                 else -> -tile * 0.06f
             }
-            paint.color = Color.argb(60, 0, 0, 0)
+            paint.color = Color.argb(65, 0, 0, 0)
             canvas.drawOval(
-                rect.centerX() - tile * 0.22f, rect.centerY() + tile * 0.16f,
-                rect.centerX() + tile * 0.22f, rect.centerY() + tile * 0.3f, paint
+                rect.centerX() - tile * 0.24f, rect.centerY() + tile * 0.16f,
+                rect.centerX() + tile * 0.24f, rect.centerY() + tile * 0.32f, paint
             )
             drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
         }
@@ -1978,10 +2059,13 @@ class GameView(context: Context) : View(context) {
             val moving = hypot(wk.tx - wk.x, wk.ty - wk.y) > 0.06f
             val bob = if (moving) abs(sin(time * 8f + wk.id)) * tile * 0.05f else 0f
             paint.color = Color.argb(80, 0, 0, 0)
-            canvas.drawOval(cxx - tile * 0.22f, cyy + tile * 0.18f, cxx + tile * 0.22f, cyy + tile * 0.3f, paint)
+            val sw = if (wk.kind == 0) tile * 0.24f else tile * 0.2f
+            canvas.drawOval(cxx - sw, cyy + tile * 0.16f, cxx + sw, cyy + tile * 0.3f, paint)
             val set = if (wk.kind == 0) sNpc[(wk.id - 1) % 10] else sPet[(wk.id - 1) % 10]
-            val size = if (wk.kind == 0) tile * 1.15f else tile * 0.95f
-            drawSprite(canvas, set[wk.dir.coerceIn(0, 3)], cxx, cyy - tile * 0.12f - bob, size)
+            // Les villageois sont dessines a la meme echelle que le heros
+            val size = if (wk.kind == 0) tile * 1.9f else tile * 1.25f
+            val lift = if (wk.kind == 0) tile * 0.42f else tile * 0.14f
+            drawSprite(canvas, set[wk.dir.coerceIn(0, 3)], cxx, cyy - lift - bob, size)
         }
     }
 
@@ -2362,7 +2446,7 @@ class GameView(context: Context) : View(context) {
             3 -> sHeroRight
             else -> sHeroDown
         }
-        drawSprite(canvas, bmp, cxx, cyy, tile * 1.25f)
+        drawSprite(canvas, bmp, cxx, cyy - tile * 0.08f, tile * 1.5f)
         if (attackAnim > 0f) {
             val a = (1f - attackAnim) * 360f
             canvas.save()

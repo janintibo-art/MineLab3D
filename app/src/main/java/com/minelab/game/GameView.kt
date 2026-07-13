@@ -93,6 +93,7 @@ class GameView(context: Context) : View(context) {
     private val mSave = RectF()
     private val mInv = RectF()
     private val mHelp = RectF()
+    private val mReset = RectF()
     private val mRestart = RectF()
     private val mQuit = RectF()
 
@@ -183,6 +184,7 @@ class GameView(context: Context) : View(context) {
             putInt("flags", flagsLeft)
             putBoolean("key", world.hasKey)
             putBoolean("chest", world.chestOpen)
+            putBoolean("trap", world.trapOpen)
             putBoolean("door", world.grid[world.door] == World.FLOOR)
             putString("mines", setToStr(world.mines))
             putString("rev", setToStr(world.revealed))
@@ -207,6 +209,7 @@ class GameView(context: Context) : View(context) {
         world.blocks.clear(); world.blocks.addAll(strToSet(prefs.getString("blk", "")))
         world.hasKey = prefs.getBoolean("key", false)
         world.chestOpen = prefs.getBoolean("chest", false)
+        world.trapOpen = prefs.getBoolean("trap", false)
         if (prefs.getBoolean("door", false)) world.grid[world.door] = World.FLOOR
 
         playerName = prefs.getString("name", "Heros") ?: "Heros"
@@ -266,14 +269,15 @@ class GameView(context: Context) : View(context) {
         tHelp.set(cx0, hf * 0.81f, cx0 + cw, hf * 0.81f + rh * 1.15f)
 
         // Menu en jeu
-        val mw = wf * 0.7f
+        val mw = wf * 0.74f
         val mx = (wf - mw) / 2f
-        var my = hf * 0.24f
-        val mh = hf * 0.075f
-        val mg = hf * 0.018f
+        var my = hf * 0.22f
+        val mh = hf * 0.068f
+        val mg = hf * 0.014f
         mResume.set(mx, my, mx + mw, my + mh); my += mh + mg
         mInv.set(mx, my, mx + mw, my + mh); my += mh + mg
         mSave.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mReset.set(mx, my, mx + mw, my + mh); my += mh + mg
         mHelp.set(mx, my, mx + mw, my + mh); my += mh + mg
         mRestart.set(mx, my, mx + mw, my + mh); my += mh + mg
         mQuit.set(mx, my, mx + mw, my + mh)
@@ -433,9 +437,20 @@ class GameView(context: Context) : View(context) {
         clearPendings()
         path = listOf(Pair(bx, by))
         pathStep = 0
-        val done = world.plates.count { it in world.blocks }
-        if (world.platesSolved()) showMsg("Les 3 dalles sont activees ! Le coffre est deverrouille.")
-        else showMsg("Dalles activees : $done / 3")
+        if (world.trapSolved() && !world.trapOpen) {
+            world.trapOpen = true
+            world.revealed.add(world.idx(world.exitX, world.exitY))
+            showMsg("Clac ! Les 4 caisses sont rangees : une TRAPPE s'ouvre dans le coin !")
+        } else if (world.targets.isNotEmpty() && world.idx(tx, ty) in world.targets) {
+            val d = world.targets.count { it in world.blocks }
+            showMsg("Caisse rangee : $d / 4")
+        } else if (world.platesSolved() && !world.chestOpen) {
+            showMsg("Les 3 dalles sont activees ! Le coffre est deverrouille.")
+        } else {
+            val d = world.plates.count { it in world.blocks }
+            val c = world.targets.count { it in world.blocks }
+            showMsg(if (world.hasKey) "Caisses rangees : $c / 4" else "Dalles activees : $d / 3")
+        }
         saveGame()
         return true
     }
@@ -651,22 +666,14 @@ class GameView(context: Context) : View(context) {
                         paint.color = Color.rgb(22, 22, 22)
                         canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.19f, paint)
                     }
-                    isExit -> {
-                        paint.color = Color.rgb(45, 195, 105)
-                        canvas.drawRoundRect(rect, r, r, paint)
-                        paint.color = Color.WHITE
-                        paint.textAlign = Paint.Align.CENTER
-                        paint.textSize = tile * 0.55f
-                        paint.isFakeBoldText = true
-                        canvas.drawText("★", rect.centerX(), rect.centerY() + tile * 0.2f, paint)
-                        paint.isFakeBoldText = false
-                    }
+                    isExit && rev -> drawTrap(canvas)
                     rev -> {
                         paint.color = Color.rgb(222, 230, 238)
                         canvas.drawRoundRect(rect, r, r, paint)
                         if (i in world.plates) drawPlate(canvas, i)
+                        if (i in world.targets) drawTarget(canvas, i)
                         val n = world.countAround(gx, gy)
-                        if (n > 0 && i !in world.plates) {
+                        if (n > 0 && i !in world.plates && i !in world.targets) {
                             paint.color = numberColor(n)
                             paint.textAlign = Paint.Align.CENTER
                             paint.textSize = tile * 0.55f
@@ -686,7 +693,7 @@ class GameView(context: Context) : View(context) {
                     }
                 }
                 if (i == world.chest) drawChest(canvas)
-                if (i in world.blocks) drawBlock(canvas, i in world.plates)
+                if (i in world.blocks) drawBlock(canvas, i in world.plates || i in world.targets)
             }
         }
         drawHero(canvas, w)
@@ -701,6 +708,51 @@ class GameView(context: Context) : View(context) {
         canvas.drawCircle(cxx, cyy, tile * 0.24f, paint)
         paint.style = Paint.Style.FILL
         canvas.drawCircle(cxx, cyy, tile * 0.09f, paint)
+    }
+
+    /** Dalle speciale de la salle de rangement (bleu). */
+    private fun drawTarget(canvas: Canvas, i: Int) {
+        val cxx = rect.centerX()
+        val cyy = rect.centerY()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.07f
+        paint.color = if (i in world.blocks) Color.rgb(45, 175, 95) else Color.rgb(60, 150, 225)
+        rect.inset(tile * 0.16f, tile * 0.16f)
+        canvas.drawRoundRect(rect, tile * 0.06f, tile * 0.06f, paint)
+        rect.inset(-tile * 0.16f, -tile * 0.16f)
+        paint.style = Paint.Style.FILL
+        canvas.drawCircle(cxx, cyy, tile * 0.06f, paint)
+    }
+
+    /** La trappe : fermee (grille sombre) ou ouverte (echelle vers le bas). */
+    private fun drawTrap(canvas: Canvas) {
+        val r = tile * 0.16f
+        if (!world.trapOpen) {
+            paint.color = Color.rgb(70, 62, 50)
+            canvas.drawRoundRect(rect, r, r, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.045f
+            paint.color = Color.rgb(45, 40, 32)
+            canvas.drawLine(rect.left, rect.centerY(), rect.right, rect.centerY(), paint)
+            canvas.drawLine(rect.centerX(), rect.top, rect.centerX(), rect.bottom, paint)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(190, 175, 90)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.07f, paint)
+        } else {
+            paint.color = Color.rgb(20, 22, 30)
+            canvas.drawRoundRect(rect, r, r, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.05f
+            paint.color = Color.rgb(70, 220, 130)
+            canvas.drawRoundRect(rect, r, r, paint)
+            paint.color = Color.rgb(160, 120, 60)
+            var yy = rect.top + tile * 0.16f
+            while (yy < rect.bottom - tile * 0.05f) {
+                canvas.drawLine(rect.left + tile * 0.14f, yy, rect.right - tile * 0.14f, yy, paint)
+                yy += tile * 0.16f
+            }
+            paint.style = Paint.Style.FILL
+        }
     }
 
     private fun drawBlock(canvas: Canvas, onPlate: Boolean) {
@@ -836,8 +888,12 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.rgb(150, 160, 180)
         paint.textSize = ts * 0.85f
         val done = world.plates.count { it in world.blocks }
+        val cr = world.targets.count { it in world.blocks }
+        val doorOpen = world.grid[world.door] == World.FLOOR
         val obj = when {
-            world.hasKey -> "Objectif : ouvrir la porte violette, puis l'etoile."
+            world.trapOpen -> "Objectif : rejoindre la TRAPPE ouverte !"
+            doorOpen -> "Objectif : ranger les 4 caisses au fond de l'alcove ($cr/4)."
+            world.hasKey -> "Objectif : ouvrir la porte violette."
             world.platesSolved() -> "Objectif : ouvrir le coffre (la cle est dedans)."
             else -> "Objectif : pousser les 3 blocs sur les 3 dalles ($done/3)."
         }
@@ -888,6 +944,7 @@ class GameView(context: Context) : View(context) {
         drawPanelBtn(canvas, mResume, "REPRENDRE", false)
         drawPanelBtn(canvas, mInv, "INVENTAIRE", false)
         drawPanelBtn(canvas, mSave, "SAUVEGARDER", false)
+        drawPanelBtn(canvas, mReset, "REINITIALISER L'ENIGME", false)
         drawPanelBtn(canvas, mHelp, "COMMENT JOUER ?", false)
         drawPanelBtn(canvas, mRestart, "NOUVELLE PARTIE", false)
         drawPanelBtn(canvas, mQuit, "MENU PRINCIPAL", false)
@@ -947,7 +1004,7 @@ class GameView(context: Context) : View(context) {
         canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.1f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
-        paint.textSize = h * 0.0175f
+        paint.textSize = h * 0.016f
         val lines = listOf(
             "• Touchez une dalle : le heros y va seul et la sonde.",
             "• Une dalle sure affiche le nombre de mines autour.",
@@ -962,20 +1019,27 @@ class GameView(context: Context) : View(context) {
             "• Glissez le doigt pour deplacer la carte, ◎ recentre.",
             "• Boutons − / + : zoom.  ☰ : menu et inventaire.",
             "",
-            "ENIGME (salle eclairee, en bas a droite) :",
+            "ENIGME 1 (salle eclairee, en bas a droite) :",
             "• Placez-vous a cote d'un bloc, touchez-le pour le pousser.",
-            "• 3 blocs sur les 3 dalles -> le coffre s'ouvre.",
-            "• Le coffre donne la CLE (+5 drapeaux bonus).",
-            "• La cle ouvre la PORTE violette -> etoile verte = victoire.",
+            "• 3 blocs sur les 3 dalles -> le coffre s'ouvre -> CLE.",
+            "• La cle ouvre la PORTE violette.",
+            "",
+            "ENIGME 2 (salle de rangement, derriere la porte) :",
+            "• 4 caisses a ranger sur les 4 dalles BLEUES de l'alcove.",
+            "• L'alcove est un cul-de-sac : une seule solution !",
+            "• Rangez d'abord la caisse la PLUS AU FOND, sinon vous",
+            "  bloquez le passage. L'ordre compte.",
+            "• Les 4 caisses rangees -> une TRAPPE s'ouvre = victoire.",
+            "• Coince ? Menu ☰ > REINITIALISER L'ENIGME.",
             "",
             "(Monstres et combat : bientot.)",
             "",
             "Touchez l'ecran pour fermer."
         )
-        var y = h * 0.15f
+        var y = h * 0.14f
         for (line in lines) {
             canvas.drawText(line, w * 0.07f, y, paint)
-            y += h * 0.031f
+            y += h * 0.0285f
         }
     }
 
@@ -1066,6 +1130,10 @@ class GameView(context: Context) : View(context) {
                 mResume.contains(e.x, e.y) -> showMenu = false
                 mInv.contains(e.x, e.y) -> showInv = true
                 mSave.contains(e.x, e.y) -> { saveGame(); showMenu = false; showMsg("Partie sauvegardee.") }
+                mReset.contains(e.x, e.y) -> {
+                    world.resetPuzzle(); saveGame(); showMenu = false
+                    showMsg("Enigmes reinitialisees : les caisses sont revenues a leur place.")
+                }
                 mHelp.contains(e.x, e.y) -> showHelp = true
                 mRestart.contains(e.x, e.y) -> newGame()
                 mQuit.contains(e.x, e.y) -> { saveGame(); showMenu = false; state = TITLE }

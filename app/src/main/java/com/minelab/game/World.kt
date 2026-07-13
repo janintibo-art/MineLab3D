@@ -3,11 +3,12 @@ package com.minelab.game
 import kotlin.random.Random
 
 /**
- * Grand labyrinthe (41x41) dont chaque case de sol est une dalle de demineur.
+ * Labyrinthe-demineur + zone finale en bas a droite :
  *
- * Contient aussi la SALLE A ENIGME : pousser les 3 blocs sur les 3 dalles de
- * pression ouvre le coffre, qui contient la CLE, qui ouvre la PORTE menant a
- * la salle de sortie.
+ *  SALLE A (coffre)                     SALLE B (rangement, derriere la porte)
+ *  - 3 blocs a pousser sur 3 dalles     - 4 caisses a ranger dans l'alcove
+ *  - le coffre s'ouvre -> CLE           - une seule solution : la plus profonde d'abord
+ *                    ---- PORTE ---->   - une fois rangees, la TRAPPE s'ouvre = sortie
  */
 class World(
     val size: Int = 41,
@@ -29,24 +30,30 @@ class World(
     val flagged = HashSet<Int>()
     val exploded = HashSet<Int>()
 
-    // Enigme
+    /** Toutes les caisses poussables (salle A + salle B). */
     val blocks = HashSet<Int>()
-    val plates = HashSet<Int>()
+    /** Etat initial, pour le bouton "reinitialiser l'enigme". */
+    val blocksInit = HashSet<Int>()
+
+    val plates = HashSet<Int>()    // dalles de pression de la salle A (coffre)
+    val targets = HashSet<Int>()   // dalles speciales de la salle B (rangement)
+
     var chest = -1
     var chestOpen = false
     var hasKey = false
     var door = -1
+    var trapOpen = false
 
     var startX = 1
     var startY = 1
-    var exitX = 0
+    var exitX = 0                  // la trappe
     var exitY = 0
     var totalMines = 0
 
-    private val rx = size - 14
-    private val ry = size - 14
-    private val rw = 9
-    private val rh = 9
+    // Zone finale, ancree en bas a droite : 21 de large, 9 de haut
+    private val zx = size - 22
+    private val zy = size - 10
+    private val bx = zx + 10       // origine de la salle B
 
     fun idx(x: Int, y: Int) = y * size + x
     fun inside(x: Int, y: Int) = x in 0 until size && y in 0 until size
@@ -57,9 +64,10 @@ class World(
         carveMaze()
         carveRooms()
         openExtraPassages()
-        buildPuzzleRoom()
+        buildFinalZone()
         placeMines()
         totalMines = mines.size
+        blocksInit.addAll(blocks)
         revealCascade(startX, startY)
     }
 
@@ -97,7 +105,6 @@ class World(
         }
     }
 
-    /** On abat des murs : plusieurs itineraires possibles, moins de culs-de-sac. */
     private fun openExtraPassages() {
         var n = size * 3
         var guard = 0
@@ -112,48 +119,57 @@ class World(
         }
     }
 
-    private fun buildPuzzleRoom() {
-        // Enceinte
-        for (y in ry - 1..ry + rh) for (x in rx - 1..rx + rw) {
+    /** Salle du coffre + porte + salle de rangement (Sokoban) + trappe. */
+    private fun buildFinalZone() {
+        // Enceinte de toute la zone
+        for (y in zy - 1..zy + 9) for (x in zx - 1..zx + 21) {
             if (inside(x, y)) grid[idx(x, y)] = WALL
         }
-        // Interieur de la salle a enigme
-        for (y in ry until ry + rh) for (x in rx until rx + rw) grid[idx(x, y)] = FLOOR
+        // Salle A (coffre) : 9 x 9
+        for (y in zy..zy + 8) for (x in zx..zx + 8) grid[idx(x, y)] = FLOOR
+        // Salle B (rangement) : 11 x 9
+        for (y in zy..zy + 8) for (x in bx..bx + 10) grid[idx(x, y)] = FLOOR
 
-        // Chambre de sortie, scellee, juste en dessous
-        val ex0 = rx + 3
-        val ey0 = ry + rh + 2
-        for (y in ey0 - 2..ey0 + 3) for (x in ex0 - 2..ex0 + 4) {
-            if (inside(x, y)) grid[idx(x, y)] = WALL
-        }
-        for (y in ey0 until ey0 + 3) for (x in ex0 until ex0 + 3) {
-            if (inside(x, y)) grid[idx(x, y)] = FLOOR
-        }
-        // La porte : unique passage vers la sortie
-        val dxp = ex0 + 1
-        val dyp = ry + rh
-        grid[idx(dxp, dyp)] = DOOR
-        grid[idx(dxp, dyp + 1)] = FLOOR
-        door = idx(dxp, dyp)
+        // La porte, unique passage de A vers B
+        door = idx(zx + 9, zy + 4)
+        grid[door] = DOOR
 
-        exitX = ex0 + 1
-        exitY = ey0 + 1
+        // --- Salle A : 3 dalles, 3 blocs, 1 coffre
+        plates.add(idx(zx + 1, zy + 1))
+        plates.add(idx(zx + 7, zy + 1))
+        plates.add(idx(zx + 1, zy + 7))
+        blocks.add(idx(zx + 3, zy + 3))
+        blocks.add(idx(zx + 5, zy + 3))
+        blocks.add(idx(zx + 4, zy + 5))
+        chest = idx(zx + 7, zy + 6)
 
-        // Deux tunnels de liaison avec le labyrinthe
-        digTunnel(rx - 1, ry + 1, -1, 0)
-        digTunnel(rx + 1, ry - 1, 0, -1)
+        // --- Salle B : une alcove en cul-de-sac sur la rangee du haut.
+        // Murs qui ferment l'alcove : on n'y entre que par (bx+5, zy)
+        grid[idx(bx, zy)] = WALL
+        for (x in bx + 1..bx + 4) grid[idx(x, zy + 1)] = WALL
 
-        // Enigme
-        plates.add(idx(rx + 1, ry + 1))
-        plates.add(idx(rx + 7, ry + 1))
-        plates.add(idx(rx + 1, ry + 7))
-        blocks.add(idx(rx + 3, ry + 3))
-        blocks.add(idx(rx + 5, ry + 3))
-        blocks.add(idx(rx + 4, ry + 5))
-        chest = idx(rx + 7, ry + 6)
+        // Les 4 dalles speciales, au fond de l'alcove
+        targets.add(idx(bx + 1, zy))
+        targets.add(idx(bx + 2, zy))
+        targets.add(idx(bx + 3, zy))
+        targets.add(idx(bx + 4, zy))
 
-        // Salle eclairee : dalles deja revelees
-        for (y in ry - 1..ry + rh + 1) for (x in rx - 1..rx + rw + 1) {
+        // Les 4 caisses, alignees dans la salle
+        blocks.add(idx(bx + 6, zy + 2))
+        blocks.add(idx(bx + 7, zy + 2))
+        blocks.add(idx(bx + 8, zy + 2))
+        blocks.add(idx(bx + 9, zy + 2))
+
+        // La trappe (sortie), dans le coin oppose
+        exitX = bx + 10
+        exitY = zy + 8
+
+        // Deux acces depuis le labyrinthe vers la salle A
+        digTunnel(zx - 1, zy + 4, -1, 0)
+        digTunnel(zx + 4, zy - 1, 0, -1)
+
+        // La salle A est eclairee des le depart
+        for (y in zy - 1..zy + 9) for (x in zx - 1..zx + 9) {
             if (isFloor(x, y)) revealed.add(idx(x, y))
         }
     }
@@ -179,8 +195,8 @@ class World(
         for (dy in -2..2) for (dx in -2..2) {
             if (inside(startX + dx, startY + dy)) safe.add(idx(startX + dx, startY + dy))
         }
-        // Aucune mine dans la salle a enigme ni dans la sortie : c'est un puzzle
-        for (y in ry - 2 until size) for (x in rx - 2 until size) {
+        // Aucune mine dans toute la zone finale : ce sont des enigmes, pas des pieges
+        for (y in zy - 2 until size) for (x in zx - 2 until size) {
             if (inside(x, y)) safe.add(idx(x, y))
         }
 
@@ -214,17 +230,28 @@ class World(
         val i = idx(x, y)
         if (i in mines || i in flagged || i in blocks) return false
         if (i == chest) return false
+        if (x == exitX && y == exitY && !trapOpen) return false
         return i in revealed
     }
 
+    /** Une caisse peut-elle etre poussee ici ? */
     fun canPushInto(x: Int, y: Int): Boolean {
         if (!isFloor(x, y)) return false
         val i = idx(x, y)
         if (i in blocks || i == chest || i in mines || i in flagged) return false
+        if (i == door) return false
+        if (x == exitX && y == exitY) return false
         return true
     }
 
     fun platesSolved(): Boolean = plates.all { it in blocks }
+    fun trapSolved(): Boolean = targets.all { it in blocks }
+
+    fun resetPuzzle() {
+        blocks.clear()
+        blocks.addAll(blocksInit)
+        trapOpen = false
+    }
 
     fun revealCascade(sx: Int, sy: Int) {
         val stack = ArrayDeque<Pair<Int, Int>>()
@@ -246,7 +273,6 @@ class World(
 
     // ------------------------------------------------------------ chemin
 
-    /** Plus court chemin (BFS 4 directions) par les dalles sures deja revelees. */
     fun findPath(fx: Int, fy: Int, tx: Int, ty: Int): List<Pair<Int, Int>>? {
         if (!isWalkable(tx, ty)) return null
         if (fx == tx && fy == ty) return emptyList()
@@ -259,14 +285,14 @@ class World(
         while (q.isNotEmpty()) {
             val (x, y) = q.removeFirst()
             if (x == tx && y == ty) {
-                val path = ArrayList<Pair<Int, Int>>()
+                val p = ArrayList<Pair<Int, Int>>()
                 var cur = idx(x, y)
                 while (cur != idx(fx, fy)) {
-                    path.add(Pair(cur % size, cur / size))
+                    p.add(Pair(cur % size, cur / size))
                     cur = prev[cur]!!
                 }
-                path.reverse()
-                return path
+                p.reverse()
+                return p
             }
             for ((dx, dy) in d4) {
                 val nx = x + dx

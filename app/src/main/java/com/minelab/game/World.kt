@@ -3,18 +3,23 @@ package com.minelab.game
 import kotlin.random.Random
 
 /**
- * ETAGE 1 :
- *  1) Grande salle de demineur (chiffres bases sur le layout d'origine : stables).
- *     Des COEURS sont caches sous certaines dalles sures.
- *  2) Salle du coffre : chaque dalle de pression est recouverte d'un MINI-DEMINEUR
- *     3x3 qu'il faut resoudre pour la decouvrir. 3 blocs sur les 3 dalles -> coffre -> CLE.
- *  3) Salle de rangement (sokoban durci, solution unique) -> TRAPPE.
- *     Sokoban resolu -> un 2e coffre apparait : il contient le JOYSTICK.
+ * LE DONJON (organise comme un vrai donjon, pour la future carte) :
  *
- * SOUS-SOL (via la trappe) :
- *  Couloir -> salle de l'enigme des couleurs (Simon). Resolue -> un coffre et
- *  2 portes apparaissent. Porte gauche -> salle de l'etoile (victoire).
- *  Porte droite -> scellee (prochaine mise a jour).
+ *  ETAGE 0
+ *   [1] GRANDE SALLE : champ de mines (demineur). Coeurs caches.
+ *   [2] SALLE DU COFFRE : 3 dalles a mini-demineur + 3 blocs -> coffre -> CLE
+ *        --- PORTE A CLE --->
+ *   [3] SALLE DE RANGEMENT : sokoban 1 (4 caisses) -> TRAPPE + coffre du JOYSTICK
+ *
+ *  SOUS-SOL (par la trappe)
+ *   [4] COULOIR
+ *   [5] SALLE DES COULEURS : enigme Simon -> coffre-fort (EPEE) + 2 portes
+ *        - PORTE SUD : scellee (une cle a trouver plus tard)
+ *        - PORTE EST --->
+ *   [6] SALLE DES TORCHES : prendre le BRIQUET au centre, allumer les 4 torches,
+ *        des caisses apparaissent -> sokoban 2 (5 caisses, plus dur)
+ *        -> une PORTE apparait, gardee par 2 MONSTRES
+ *   [7] SALLE DE L'ETOILE : victoire
  */
 class World(
     val hallW: Int = 16,
@@ -31,63 +36,78 @@ class World(
 
     private val rnd = Random(seed)
 
-    val wid = hallW + 24
-    val uy0 = (if (hallH > 11) hallH else 11) + 3
-    val hei = uy0 + 12
+    val wid = maxOf(hallW + 24, 40)
+    val uy0 = maxOf(hallH, 11) + 3
+    val hei = uy0 + 14
 
     val grid = IntArray(wid * hei) { WALL }
 
-    /** Disposition d'origine des mines : les chiffres n'en bougent JAMAIS. */
     val layout = HashSet<Int>()
     val mines = HashSet<Int>()
     val revealed = HashSet<Int>()
     val flagged = HashSet<Int>()
     val exploded = HashSet<Int>()
     val defused = HashSet<Int>()
-
-    /** Coeurs caches sous des dalles sures de la grande salle. */
     val hearts = HashSet<Int>()
 
     val blocks = HashSet<Int>()
     val blocksInit = HashSet<Int>()
     val plates = HashSet<Int>()
-    /** Dalles de pression dont le mini-demineur a ete resolu. */
     val plateSolved = HashSet<Int>()
-    val targets = HashSet<Int>()
+    val targets = HashSet<Int>()        // sokoban 1
+    val targets2 = HashSet<Int>()       // sokoban 2
+    private val crates2 = ArrayList<Int>()
     private val roomB = ArrayList<Int>()
+    private val roomTorch = ArrayList<Int>()
+    private val roomFinal = ArrayList<Int>()
 
-    var chest = -1          // coffre de la cle
+    var chest = -1
     var chestOpen = false
     var hasKey = false
-    var door = -1           // porte a cle entre A et B
+    var door = -1
     var trapOpen = false
-    var chest2 = -1         // coffre du joystick (apparait apres le sokoban)
+    var chest2 = -1
     var chest2Spawned = false
     var chest2Open = false
 
     // Sous-sol
     var altar = -1
-    val simonTiles = IntArray(4)          // rouge, bleu, vert, jaune
-    val simonSeq = ArrayList<Int>()       // suite de couleurs (0..3)
+    val simonTiles = IntArray(4)
+    val simonSeq = ArrayList<Int>()
     var simonSolved = false
     var chest3 = -1
     var chest3Spawned = false
     var chest3Open = false
-    var door1 = -1          // vers l'etoile
-    var door2 = -1          // scellee
-    var undergroundStartX = 0
-    var undergroundStartY = 0
+    var door1 = -1                      // salle des couleurs -> salle des torches
+    var door2 = -1                      // scellee (cle future)
+    var door3 = -1                      // salle des torches -> etoile
+    var door3Spawned = false
+    var door3Open = false
+
+    // Salle des torches
+    var lighter = -1
+    var lighterTaken = false
+    val torches = IntArray(4)
+    val torchLit = HashSet<Int>()
+    var sokoban2Spawned = false
+    var mobsSpawned = false
+    var mobsDead = false
+    val mobSpawn = IntArray(2)
 
     var startX = 1
     var startY = 1
+    var undergroundStartX = 0
+    var undergroundStartY = 0
     var trapX = 0
     var trapY = 0
-    var exitX = 0           // l'etoile
+    var exitX = 0
     var exitY = 0
     var totalMines = 0
 
     private val ax = hallW + 2
     private val bx = hallW + 12
+    private val tx0 = 22
+    private val ty0 = uy0 + 1
 
     fun idx(x: Int, y: Int) = y * wid + x
     fun cx(i: Int) = i % wid
@@ -101,6 +121,7 @@ class World(
         buildChestRoom()
         buildStorageRoom()
         buildUnderground()
+        buildTorchRoom()
         placeMines()
         placeHearts()
         totalMines = mines.size
@@ -108,7 +129,7 @@ class World(
         revealCascade(startX, startY)
     }
 
-    // ------------------------------------------------------------ etage 1
+    // ------------------------------------------------------------ etage 0
 
     private fun buildHall() {
         for (y in 1..hallH) for (x in 1..hallW) grid[idx(x, y)] = FLOOR
@@ -117,7 +138,6 @@ class World(
 
     private fun buildChestRoom() {
         for (y in 1..11) for (x in ax..ax + 8) grid[idx(x, y)] = FLOOR
-
         plates.add(idx(ax + 1, 2))
         plates.add(idx(ax + 7, 2))
         plates.add(idx(ax + 1, 9))
@@ -125,23 +145,14 @@ class World(
         blocks.add(idx(ax + 5, 5))
         blocks.add(idx(ax + 4, 7))
         chest = idx(ax + 7, 9)
-
         door = idx(ax + 9, 6)
         grid[door] = DOOR
-
         for (y in 1..11) for (x in ax..ax + 8) revealed.add(idx(x, y))
         revealed.add(idx(hallW + 1, 5))
     }
 
-    /**
-     * Sokoban durci. Alcove (dalles bleues) en haut, fermee sauf deux puits :
-     * les caisses n'entrent que par la colonne bx+5, le heros contourne par bx+8.
-     * Des murs interieurs imposent des manoeuvres et un ordre unique.
-     */
     private fun buildStorageRoom() {
         for (y in 1..11) for (x in bx..bx + 10) grid[idx(x, y)] = FLOOR
-
-        // Fermeture de l'alcove (rangee y=1) : acces caisses en +5, acces heros en +8
         grid[idx(bx, 1)] = WALL
         grid[idx(bx + 9, 1)] = WALL
         grid[idx(bx + 10, 1)] = WALL
@@ -151,16 +162,12 @@ class World(
         grid[idx(bx + 7, 2)] = WALL
         grid[idx(bx + 9, 2)] = WALL
         grid[idx(bx + 10, 2)] = WALL
-
-        // Murs interieurs : couloirs etroits autour de la colonne des caisses
         grid[idx(bx + 4, 5)] = WALL
         grid[idx(bx + 6, 5)] = WALL
         grid[idx(bx + 2, 7)] = WALL
         grid[idx(bx + 8, 8)] = WALL
 
         for (k in 1..4) targets.add(idx(bx + k, 1))
-
-        // Caisses dispersees : chacune doit etre ramenee dans la colonne +5
         blocks.add(idx(bx + 5, 4))
         blocks.add(idx(bx + 3, 6))
         blocks.add(idx(bx + 7, 7))
@@ -169,71 +176,108 @@ class World(
         trapX = bx + 10
         trapY = 11
         chest2 = idx(bx + 1, 10)
-
-        for (y in 1..11) for (x in bx..bx + 10) {
-            if (isFloor(x, y)) roomB.add(idx(x, y))
-        }
+        for (y in 1..11) for (x in bx..bx + 10) if (isFloor(x, y)) roomB.add(idx(x, y))
     }
 
-    fun revealRoomB() {
-        revealed.addAll(roomB)
-    }
+    fun revealRoomB() = revealed.addAll(roomB)
 
     // ------------------------------------------------------------ sous-sol
 
     private fun buildUnderground() {
         val cy0 = uy0 + 5
-        // Couloir
         for (x in 3..11) grid[idx(x, cy0)] = FLOOR
         undergroundStartX = 3
         undergroundStartY = cy0
 
-        // Salle de l'enigme (9x9)
-        val rx0 = 12
-        for (y in uy0 + 1..uy0 + 9) for (x in rx0..rx0 + 8) grid[idx(x, y)] = FLOOR
+        for (y in uy0 + 1..uy0 + 9) for (x in 12..20) grid[idx(x, y)] = FLOOR
 
-        altar = idx(rx0 + 4, uy0 + 5)
-        simonTiles[0] = idx(rx0 + 4, uy0 + 2)   // rouge (nord)
-        simonTiles[1] = idx(rx0 + 1, uy0 + 5)   // bleu (ouest)
-        simonTiles[2] = idx(rx0 + 7, uy0 + 5)   // vert (est)
-        simonTiles[3] = idx(rx0 + 4, uy0 + 8)   // jaune (sud)
-
-        // Suite de 4 couleurs, reproductible via la graine
+        altar = idx(16, uy0 + 5)
+        simonTiles[0] = idx(16, uy0 + 2)
+        simonTiles[1] = idx(13, uy0 + 5)
+        simonTiles[2] = idx(19, uy0 + 5)
+        simonTiles[3] = idx(16, uy0 + 8)
         repeat(4) { simonSeq.add(rnd.nextInt(4)) }
 
-        chest3 = idx(rx0 + 2, uy0 + 2)
-        door1 = idx(rx0 + 9, uy0 + 3)
-        door2 = idx(rx0 + 9, uy0 + 7)
-
-        // Salle de l'etoile, derriere la porte gauche
-        for (y in uy0 + 2..uy0 + 4) for (x in rx0 + 10..rx0 + 12) grid[idx(x, y)] = FLOOR
-        exitX = rx0 + 11
-        exitY = uy0 + 3
-
-        // Le sous-sol est eclaire (pas de demineur ici)
-        for (y in uy0 until hei) for (x in 0 until wid) {
-            if (isFloor(x, y)) revealed.add(idx(x, y))
-        }
+        chest3 = idx(14, uy0 + 2)
+        door1 = idx(21, uy0 + 5)
+        door2 = idx(16, uy0 + 10)       // scellee, pour plus tard
+        grid[door2] = DOOR
     }
 
-    /** Appelee quand l'enigme des couleurs est resolue. */
+    private fun buildTorchRoom() {
+        for (y in ty0..ty0 + 10) for (x in tx0..tx0 + 12) grid[idx(x, y)] = FLOOR
+        // Alcove en cul-de-sac (rangee du haut)
+        grid[idx(tx0, ty0)] = WALL
+        grid[idx(tx0 + 11, ty0)] = WALL
+        grid[idx(tx0 + 12, ty0)] = WALL
+        for (x in tx0..tx0 + 12) {
+            if (x != tx0 + 6 && x != tx0 + 9) grid[idx(x, ty0 + 1)] = WALL
+        }
+        for (k in 1..5) targets2.add(idx(tx0 + k, ty0))
+
+        lighter = idx(tx0 + 6, ty0 + 5)
+        torches[0] = idx(tx0 + 1, ty0 + 2)
+        torches[1] = idx(tx0 + 11, ty0 + 2)
+        torches[2] = idx(tx0 + 1, ty0 + 9)
+        torches[3] = idx(tx0 + 11, ty0 + 9)
+
+        crates2.add(idx(tx0 + 6, ty0 + 3))
+        crates2.add(idx(tx0 + 6, ty0 + 5))
+        crates2.add(idx(tx0 + 6, ty0 + 7))
+        crates2.add(idx(tx0 + 6, ty0 + 9))
+        crates2.add(idx(tx0 + 2, ty0 + 4))
+
+        mobSpawn[0] = idx(tx0 + 9, ty0 + 7)
+        mobSpawn[1] = idx(tx0 + 4, ty0 + 8)
+
+        door3 = idx(tx0 + 13, ty0 + 5)
+
+        // Salle de l'etoile
+        for (y in ty0 + 4..ty0 + 6) for (x in tx0 + 14..tx0 + 16) grid[idx(x, y)] = FLOOR
+        exitX = tx0 + 15
+        exitY = ty0 + 5
+
+        for (y in ty0..ty0 + 10) for (x in tx0..tx0 + 12) if (isFloor(x, y)) roomTorch.add(idx(x, y))
+        for (y in ty0 + 4..ty0 + 6) for (x in tx0 + 14..tx0 + 16) roomFinal.add(idx(x, y))
+    }
+
     fun spawnAfterSimon() {
         simonSolved = true
         chest3Spawned = true
         grid[door1] = DOOR
-        grid[door2] = DOOR
+        revealed.add(door1)
     }
 
     fun openDoor1() {
         grid[door1] = FLOOR
-        for (y in uy0 + 2..uy0 + 4) for (x in 22..24) {
-            if (isFloor(x, y)) revealed.add(idx(x, y))
-        }
         revealed.add(door1)
-        revealed.add(idx(exitX, exitY))
+        revealed.addAll(roomTorch)
     }
 
-    // ------------------------------------------------------------ mines & coeurs
+    /** Les 4 torches sont allumees : les caisses apparaissent. */
+    fun spawnSokoban2() {
+        sokoban2Spawned = true
+        blocks.addAll(crates2)
+        blocksInit.addAll(crates2)
+    }
+
+    fun spawnDoor3AndMobs() {
+        door3Spawned = true
+        mobsSpawned = true
+        grid[door3] = DOOR
+        revealed.add(door3)
+    }
+
+    fun openDoor3() {
+        door3Open = true
+        grid[door3] = FLOOR
+        revealed.add(door3)
+        revealed.addAll(roomFinal)
+    }
+
+    fun sokoban2Solved(): Boolean = sokoban2Spawned && targets2.all { it in blocks }
+
+    // ------------------------------------------------------------ mines
 
     private fun placeMines() {
         val cells = ArrayList<Int>()
@@ -261,8 +305,7 @@ class World(
         }
         var placed = 0
         var guard = 0
-        val want = 4
-        while (placed < want && guard < 20000) {
+        while (placed < 5 && guard < 20000) {
             guard++
             val c = cells[rnd.nextInt(cells.size)]
             if (c in hearts) continue
@@ -271,7 +314,7 @@ class World(
         }
     }
 
-    // ------------------------------------------------------------ demineur
+    // ------------------------------------------------------------ regles
 
     fun countAround(x: Int, y: Int): Int {
         var c = 0
@@ -284,6 +327,8 @@ class World(
         return c
     }
 
+    fun isTorch(i: Int) = torches.any { it == i }
+
     fun isWalkable(x: Int, y: Int): Boolean {
         if (!isFloor(x, y)) return false
         val i = idx(x, y)
@@ -292,6 +337,7 @@ class World(
         if (chest2Spawned && i == chest2) return false
         if (chest3Spawned && i == chest3) return false
         if (i == altar) return false
+        if (isTorch(i)) return false
         if (x == trapX && y == trapY && !trapOpen) return false
         return i in revealed
     }
@@ -301,9 +347,10 @@ class World(
         val i = idx(x, y)
         if (i in blocks || i == chest || i in mines || i in flagged) return false
         if (chest2Spawned && i == chest2) return false
-        if (i == door) return false
+        if (chest3Spawned && i == chest3) return false
+        if (i == altar || isTorch(i)) return false
+        if (i == door || i == door1 || i == door2 || i == door3) return false
         if (x == trapX && y == trapY) return false
-        // Impossible de poser un bloc sur une dalle dont le mini-demineur n'est pas resolu
         if (i in plates && i !in plateSolved) return false
         return true
     }
@@ -314,6 +361,7 @@ class World(
     fun resetPuzzle() {
         blocks.clear()
         blocks.addAll(blocksInit)
+        if (!sokoban2Spawned) blocks.removeAll(crates2.toSet())
         trapOpen = false
     }
 
@@ -334,8 +382,6 @@ class World(
             }
         }
     }
-
-    // ------------------------------------------------------------ chemin
 
     fun findPath(fx: Int, fy: Int, tx: Int, ty: Int): List<Pair<Int, Int>>? {
         if (!isWalkable(tx, ty)) return null

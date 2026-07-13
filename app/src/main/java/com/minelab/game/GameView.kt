@@ -56,6 +56,8 @@ class GameView(context: Context) : View(context) {
     private var pendingDoor1 = false
     private var pendingDoor2 = false
     private var pendingMini = -1
+    private var pendingTorch = -1
+    private var pendingDoor3 = false
 
     private var hp = 100
     private var disarmed = 0
@@ -67,6 +69,7 @@ class GameView(context: Context) : View(context) {
 
     // Joystick
     private var swordOwned = false
+    private var lighterOwned = false
     private var energyCount = 0
     private var joyOwned = false
     private var joyOn = false
@@ -94,6 +97,7 @@ class GameView(context: Context) : View(context) {
     private var message = ""
     private var msgTimer = 0f
     private var boomFlash = 0f
+    private var damageT = 0f
     private var walkPhase = 0f
     private var keyAnim = 0f
     private var time = 0f
@@ -119,7 +123,6 @@ class GameView(context: Context) : View(context) {
     private val sSwordV: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.sword_v)
     private val sVault: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vault)
     private val sEnergy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.energy)
-    @Suppress("unused")
     private val sLighter: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.lighter)
     private val sHeroDown: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_down)
     private val sHeroUp: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.hero_up)
@@ -131,23 +134,38 @@ class GameView(context: Context) : View(context) {
     private val sFlag: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.flag)
     private val sHeart: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.heart)
     private val sTorchLit: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.torch_lit)
-    private val sFloor: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_stone)
+    private val sTorchOff: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.torch_off)
+    private val sFloor: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.t_slab)
     private val sFloorDark: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_rock)
-    private val sFloorWood: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
+    private val sFloorWood: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.t_ornate)
+    private val sFloorRoom: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.t_marble)
+    @Suppress("unused")
+    private val sFloorCobble: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.t_cobble)
     private val sWall: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_brick)
     private val sWallMossy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_mossy)
-    @Suppress("unused")
     private val sMonsters: Array<Bitmap> = arrayOf(
-        BitmapFactory.decodeResource(resources, R.drawable.mon_slime),
-        BitmapFactory.decodeResource(resources, R.drawable.mon_skeleton),
-        BitmapFactory.decodeResource(resources, R.drawable.mon_goblin),
-        BitmapFactory.decodeResource(resources, R.drawable.mon_spider),
-        BitmapFactory.decodeResource(resources, R.drawable.mon_bat),
-        BitmapFactory.decodeResource(resources, R.drawable.mon_orc)
+        BitmapFactory.decodeResource(resources, R.drawable.mob1),
+        BitmapFactory.decodeResource(resources, R.drawable.mob2),
+        BitmapFactory.decodeResource(resources, R.drawable.mob3),
+        BitmapFactory.decodeResource(resources, R.drawable.mob4),
+        BitmapFactory.decodeResource(resources, R.drawable.mob5),
+        BitmapFactory.decodeResource(resources, R.drawable.mob6),
+        BitmapFactory.decodeResource(resources, R.drawable.mob7),
+        BitmapFactory.decodeResource(resources, R.drawable.mob8)
     )
 
     /** Direction du heros : 0 bas, 1 haut, 2 gauche, 3 droite. */
     private var heroDir = 0
+
+    /** Un monstre. */
+    private class Mob(var x: Float, var y: Float, var hp: Int, val sprite: Int) {
+        var hitT = 0f
+        var stepT = 0f
+    }
+
+    private val mobs = ArrayList<Mob>()
+    private var attackCd = 0f
+    private var attackAnim = 0f
 
     private var boardTop = 0f
     private var boardBottom = 0f
@@ -157,6 +175,9 @@ class GameView(context: Context) : View(context) {
     private val btnZoomIn = RectF()
     private val btnCenter = RectF()
     private val btnMenu = RectF()
+    private val btnSword = RectF()
+    private val mMap = RectF()
+    private var showMap = false
 
     private val tName = RectF()
     private val tDiff = arrayOf(RectF(), RectF(), RectF())
@@ -234,7 +255,8 @@ class GameView(context: Context) : View(context) {
         heartsGot = 0
         flagsLeft = world.totalMines
         joyOwned = false; joyOn = false
-        swordOwned = false; energyCount = 0
+        swordOwned = false; lighterOwned = false; energyCount = 0
+        mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
         gameOver = false; victory = false; flagMode = false
@@ -288,6 +310,14 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("d1", world.grid[world.door1] == World.FLOOR)
         e.putBoolean("joy", joyOwned)
         e.putBoolean("sword", swordOwned)
+        e.putBoolean("lit", lighterOwned)
+        e.putBoolean("ltaken", world.lighterTaken)
+        e.putString("torches", setToStr(world.torchLit))
+        e.putBoolean("sk2", world.sokoban2Spawned)
+        e.putBoolean("d3s", world.door3Spawned)
+        e.putBoolean("d3o", world.door3Open)
+        e.putBoolean("mobsD", world.mobsDead)
+        e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
         e.putString("mines", setToStr(world.mines))
@@ -339,6 +369,23 @@ class GameView(context: Context) : View(context) {
         flagsLeft = prefs.getInt("flags", world.totalMines)
         joyOwned = prefs.getBoolean("joy", false)
         swordOwned = prefs.getBoolean("sword", false)
+        lighterOwned = prefs.getBoolean("lit", false)
+        world.lighterTaken = prefs.getBoolean("ltaken", false)
+        world.torchLit.addAll(strToSet(prefs.getString("torches", "")))
+        if (prefs.getBoolean("sk2", false)) { world.sokoban2Spawned = true }
+        if (prefs.getBoolean("d3s", false)) world.spawnDoor3AndMobs()
+        world.mobsDead = prefs.getBoolean("mobsD", false)
+        if (prefs.getBoolean("d3o", false)) world.openDoor3()
+        mobs.clear()
+        val ms = prefs.getString("mobs", "") ?: ""
+        if (ms.isNotBlank()) {
+            for (part in ms.split(";")) {
+                val f = part.split(",")
+                if (f.size == 4) {
+                    mobs.add(Mob(f[0].toFloat(), f[1].toFloat(), f[2].toInt(), f[3].toInt()))
+                }
+            }
+        }
         energyCount = prefs.getInt("energy", 0)
         joyOn = prefs.getBoolean("joyOn", false)
 
@@ -375,6 +422,7 @@ class GameView(context: Context) : View(context) {
         btnCenter.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomIn.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
+        btnSword.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
 
         joyRadius = min(wf, hf) * 0.11f
@@ -396,11 +444,12 @@ class GameView(context: Context) : View(context) {
 
         val mw = wf * 0.74f
         val mx = (wf - mw) / 2f
-        var my = hf * 0.22f
-        val mh = hf * 0.068f
-        val mg = hf * 0.014f
+        var my = hf * 0.20f
+        val mh = hf * 0.062f
+        val mg = hf * 0.012f
         mResume.set(mx, my, mx + mw, my + mh); my += mh + mg
         mInv.set(mx, my, mx + mw, my + mh); my += mh + mg
+        mMap.set(mx, my, mx + mw, my + mh); my += mh + mg
         mSave.set(mx, my, mx + mw, my + mh); my += mh + mg
         mReset.set(mx, my, mx + mw, my + mh); my += mh + mg
         mHelp.set(mx, my, mx + mw, my + mh); my += mh + mg
@@ -414,8 +463,11 @@ class GameView(context: Context) : View(context) {
         time += dt
         msgTimer -= dt
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
+        damageT = (damageT - dt).coerceAtLeast(0f)
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
+        attackCd = (attackCd - dt).coerceAtLeast(0f)
+        attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
 
         if (following) {
@@ -441,7 +493,9 @@ class GameView(context: Context) : View(context) {
             }
         }
 
-        if (gameOver || victory || showMenu || showInv || showHelp || miniPlate >= 0) return
+        if (gameOver || victory || showMenu || showInv || showHelp || showMap || miniPlate >= 0) return
+
+        updateMobs(dt)
 
         if (pathStep < path.size) {
             walkPhase += dt * 12f
@@ -471,6 +525,7 @@ class GameView(context: Context) : View(context) {
         } else {
             // Deplacement direct au joystick
             if (joyOn && joyOwned && joyPointer >= 0 && hypot(joyDX, joyDY) > 0.4f) {
+                following = true
                 val dirX = if (abs(joyDX) >= abs(joyDY)) sign(joyDX).toInt() else 0
                 val dirY = if (abs(joyDX) < abs(joyDY)) sign(joyDY).toInt() else 0
                 val nx = hx + dirX
@@ -503,21 +558,101 @@ class GameView(context: Context) : View(context) {
             } else if (pendingDoor1) {
                 pendingDoor1 = false
                 world.openDoor1(); saveGame()
-                showMsg("La porte de gauche s'ouvre... l'etoile brille au fond !")
+                showMsg("La porte s'ouvre sur une salle plongee dans le noir...")
             } else if (pendingDoor2) {
                 pendingDoor2 = false
                 showMsg("Cette porte est scellee par une magie ancienne. (Prochaine mise a jour !)")
             } else if (pendingMini >= 0) {
                 val p = pendingMini; pendingMini = -1
                 openMini(p)
+            } else if (pendingTorch >= 0) {
+                val t = pendingTorch; pendingTorch = -1
+                lightTorch(t)
+            } else if (pendingDoor3) {
+                pendingDoor3 = false
+                if (!world.mobsDead) showMsg("Les 2 monstres gardent la porte : battez-vous !")
+                else { world.openDoor3(); saveGame(); showMsg("La porte s'ouvre : l'etoile est la !") }
             }
         }
+    }
+
+    // ------------------------------------------------------------ combat
+
+    private fun spawnMobs() {
+        mobs.clear()
+        val r = Random(world.seed + 77)
+        for (k in 0..1) {
+            val c = world.mobSpawn[k]
+            mobs.add(Mob(world.cx(c) + 0.5f, world.cy(c) + 0.5f, 100, r.nextInt(8)))
+        }
+    }
+
+    private fun updateMobs(dt: Float) {
+        if (mobs.isEmpty()) return
+        var alive = 0
+        for (m in mobs) {
+            m.hitT = (m.hitT - dt).coerceAtLeast(0f)
+            if (m.hp <= 0) continue
+            alive++
+            val dx = fx - m.x
+            val dy = fy - m.y
+            val d = hypot(dx, dy)
+            if (d > 0.8f) {
+                val sp = 1.7f * dt
+                val nx = m.x + dx / d * sp
+                val ny = m.y + dy / d * sp
+                if (world.isFloor(nx.toInt(), m.y.toInt())) m.x = nx
+                if (world.isFloor(m.x.toInt(), ny.toInt())) m.y = ny
+            }
+            if (d < 0.85f) {
+                if (!godMode) {
+                    hp -= (16f * dt).toInt().coerceAtLeast(0)
+                    if (time % 0.5f < dt) hp -= 1
+                    if (hp <= 0) {
+                        hp = 0
+                        gameOver = true
+                        prefs.edit().putBoolean("has", false).apply()
+                    }
+                }
+                damageT = 0.25f
+            }
+        }
+        if (alive == 0 && !world.mobsDead) {
+            world.mobsDead = true
+            showMsg("Les deux monstres sont vaincus ! La porte se deverrouille.")
+            saveGame()
+        }
+    }
+
+    private fun doAttack() {
+        if (!swordOwned) { showMsg("Vous n'avez pas d'epee."); return }
+        if (attackCd > 0f) return
+        attackCd = 0.45f
+        attackAnim = 1f
+        var hit = false
+        for (m in mobs) {
+            if (m.hp <= 0) continue
+            if (hypot(m.x - fx, m.y - fy) <= 1.45f) {
+                m.hp -= 40
+                m.hitT = 0.28f
+                hit = true
+                if (m.hp <= 0) showMsg("Monstre terrasse !")
+            }
+        }
+        if (!hit) showMsg("Votre epee fend l'air...")
     }
 
     /** Arrivee sur une nouvelle case : coeurs, trappe, dalles colorees. */
     private fun onArrive() {
         val i = world.idx(hx, hy)
 
+        // Le briquet, au centre de la salle des torches
+        if (i == world.lighter && !world.lighterTaken) {
+            world.lighterTaken = true
+            lighterOwned = true
+            showMsg("Vous ramassez un BRIQUET ! Allumez les 4 torches de la salle.")
+            saveGame()
+        }
         // Coeur ramasse
         if (i in world.hearts && i in world.revealed) {
             world.hearts.remove(i)
@@ -581,7 +716,7 @@ class GameView(context: Context) : View(context) {
         pendingChest = false; pendingDoor = false
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
-        pendingMini = -1
+        pendingMini = -1; pendingTorch = -1; pendingDoor3 = false
     }
 
     private fun hurt(n: Int, why: String) {
@@ -671,6 +806,20 @@ class GameView(context: Context) : View(context) {
         showMsg("Le socle s'illumine... memorisez l'ordre des couleurs !")
     }
 
+    private fun lightTorch(i: Int) {
+        if (!lighterOwned) { showMsg("Il vous faut un briquet ! Il est au centre de la salle."); return }
+        if (i in world.torchLit) { showMsg("Cette torche brule deja."); return }
+        world.torchLit.add(i)
+        val n = world.torchLit.size
+        if (n >= 4 && !world.sokoban2Spawned) {
+            world.spawnSokoban2()
+            showMsg("Les 4 torches brulent ! Des caisses tombent du plafond...")
+        } else {
+            showMsg("Torche allumee ($n/4).")
+        }
+        saveGame()
+    }
+
     // ------------------------------------------------------------ mini-demineur
 
     /** Genere le mini-plateau 3x3 de la dalle p (reproductible via la graine). */
@@ -757,7 +906,11 @@ class GameView(context: Context) : View(context) {
         path = listOf(Pair(bxx, byy))
         pathStep = 0
 
-        if (world.trapSolved() && !world.trapOpen) {
+        if (world.sokoban2Solved() && !world.door3Spawned) {
+            world.spawnDoor3AndMobs()
+            spawnMobs()
+            showMsg("Un grondement... une PORTE apparait, mais 2 MONSTRES surgissent !")
+        } else if (world.trapSolved() && !world.trapOpen) {
             world.trapOpen = true
             world.chest2Spawned = true
             world.revealed.add(world.idx(world.trapX, world.trapY))
@@ -767,7 +920,14 @@ class GameView(context: Context) : View(context) {
         } else {
             val d = world.plates.count { it in world.blocks }
             val c = world.targets.count { it in world.blocks }
-            showMsg(if (world.hasKey) "Caisses rangees : $c / 4" else "Blocs en place : $d / 3")
+            val c2 = world.targets2.count { it in world.blocks }
+            showMsg(
+                when {
+                    world.sokoban2Spawned -> "Caisses rangees : $c2 / 5"
+                    world.hasKey -> "Caisses rangees : $c / 4"
+                    else -> "Blocs en place : $d / 3"
+                }
+            )
         }
         saveGame()
         return true
@@ -789,8 +949,14 @@ class GameView(context: Context) : View(context) {
             when (i) {
                 world.door1 -> pendingDoor1 = true
                 world.door2 -> pendingDoor2 = true
+                world.door3 -> pendingDoor3 = true
                 else -> pendingDoor = true
             }
+            return
+        }
+        if (world.isTorch(i)) {
+            if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la torche."); return }
+            clearPendings(); pendingTorch = i
             return
         }
         if (!world.isFloor(gx, gy)) { showMsg("C'est un mur."); return }
@@ -889,6 +1055,11 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb((boomFlash * 170).toInt(), 255, 120, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
         }
+        if (damageT > 0f) {
+            paint.color = Color.argb((damageT * 320).toInt().coerceAtMost(140), 220, 30, 30)
+            canvas.drawRect(0f, 0f, w, h, paint)
+        }
+        if (showMap) drawMap(canvas, w, h)
         if (miniPlate >= 0) drawMini(canvas, w, h)
         if (showMenu) drawMenu(canvas, w, h)
         if (showInv) drawInventory(canvas, w, h)
@@ -976,13 +1147,19 @@ class GameView(context: Context) : View(context) {
                     i in world.exploded -> drawBomb(canvas, true)
                     i in world.defused -> drawBomb(canvas, false)
                     rev -> {
-                        val under = gy >= world.uy0
+                        val tex = when {
+                            gy >= world.uy0 -> sFloorWood            // sous-sol : dalles ornees
+                            gx > world.hallW -> sFloorRoom           // salles d'enigme : marbre
+                            else -> sFloor                           // grand demineur : dalles claires
+                        }
                         tmpRect.set(rect.left - tile * 0.04f, rect.top - tile * 0.04f, rect.right + tile * 0.04f, rect.bottom + tile * 0.04f)
-                        drawTex(canvas, if (under) sFloorWood else sFloor, tmpRect)
+                        drawTex(canvas, tex, tmpRect)
                         if (i in world.plates) {
                             if (i in world.plateSolved) drawPlate(canvas, i) else drawCoveredPlate(canvas)
                         }
-                        if (i in world.targets) drawTarget(canvas, i)
+                        if (i in world.targets || i in world.targets2) drawTarget(canvas, i)
+                        if (world.isTorch(i)) drawFloorTorch(canvas, i)
+                        if (i == world.lighter && !world.lighterTaken) drawLighter(canvas)
                         var k = -1
                         for (s in 0..3) if (i == world.simonTiles[s]) k = s
                         if (k >= 0) drawSimonTile(canvas, k)
@@ -990,15 +1167,16 @@ class GameView(context: Context) : View(context) {
                         if (isExit) drawStar(canvas)
                         if (i in world.hearts) drawHeart(canvas)
                         val n = world.countAround(gx, gy)
-                        if (n > 0 && i !in world.plates && i !in world.targets && k < 0 &&
-                            i != world.altar && !isExit && i !in world.hearts
+                        if (n > 0 && i !in world.plates && i !in world.targets && i !in world.targets2 &&
+                            k < 0 && i != world.altar && !isExit && i !in world.hearts &&
+                            !world.isTorch(i) && i != world.lighter
                         ) {
                             paint.textAlign = Paint.Align.CENTER
                             paint.textSize = tile * 0.58f
                             paint.isFakeBoldText = true
                             paint.style = Paint.Style.STROKE
-                            paint.strokeWidth = tile * 0.075f
-                            paint.color = Color.argb(210, 12, 12, 18)
+                            paint.strokeWidth = tile * 0.06f
+                            paint.color = Color.argb(190, 245, 245, 250)
                             canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.21f, paint)
                             paint.style = Paint.Style.FILL
                             paint.color = numberColor(n)
@@ -1021,7 +1199,7 @@ class GameView(context: Context) : View(context) {
                 if (i == world.chest) drawChest(canvas, world.platesSolved(), world.chestOpen, true)
                 if (world.chest2Spawned && i == world.chest2) drawChest(canvas, true, world.chest2Open, false)
                 if (world.chest3Spawned && i == world.chest3) drawChest(canvas, true, world.chest3Open, false, vault = true)
-                if (i in world.blocks) drawCrate(canvas, i in world.plates || i in world.targets)
+                if (i in world.blocks) drawCrate(canvas, i in world.plates || i in world.targets || i in world.targets2)
             }
         }
         drawHero(canvas, w)
@@ -1045,14 +1223,22 @@ class GameView(context: Context) : View(context) {
         val under = gy >= world.uy0
         tmpRect.set(rect.left - tile * 0.045f, rect.top - tile * 0.045f, rect.right + tile * 0.045f, rect.bottom + tile * 0.045f)
         drawTex(canvas, if (under) sWallMossy else sWall, tmpRect)
-        paint.color = Color.argb(if (under) 90 else 70, 0, 0, 0)
+        paint.color = Color.argb(if (under) 95 else 75, 0, 0, 0)
         canvas.drawRect(tmpRect, paint)
-        // Torches murales
-        if ((gx + gy) % 5 == 0) {
+
+        // Torche : uniquement sur un mur qui BORDE une salle, accrochee sur sa face,
+        // et seulement si la salle en question est deja decouverte.
+        val below = world.idx(gx, gy + 1)
+        val onFace = world.isFloor(gx, gy + 1) && below in world.revealed
+        if (onFace && gx % 3 == 1) {
             val flicker = 0.93f + 0.09f * sin(time * 9f + gx * 1.7f)
-            paint.color = Color.argb(70, 255, 170, 60)
-            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.55f * flicker, paint)
-            drawSprite(canvas, sTorchLit, rect.centerX(), rect.centerY(), tile * 1.05f * flicker)
+            val txx = rect.centerX()
+            val tyy = rect.bottom - tile * 0.06f
+            paint.color = Color.argb(58, 255, 165, 60)
+            canvas.drawCircle(txx, tyy, tile * 0.62f * flicker, paint)
+            paint.color = Color.argb(40, 255, 190, 90)
+            canvas.drawCircle(txx, tyy, tile * 1.05f * flicker, paint)
+            drawSprite(canvas, sTorchLit, txx, tyy - tile * 0.06f, tile * 0.85f * flicker)
         }
     }
 
@@ -1132,6 +1318,59 @@ class GameView(context: Context) : View(context) {
         paint.isFakeBoldText = true
         canvas.drawText("?", rect.centerX(), rect.centerY() + tile * 0.12f, paint)
         paint.isFakeBoldText = false
+    }
+
+    /** Torche murale de la salle des torches : eteinte ou allumee. */
+    private fun drawFloorTorch(canvas: Canvas, i: Int) {
+        val lit = i in world.torchLit
+        val cxx = rect.centerX()
+        val cyy = rect.centerY()
+        if (lit) {
+            val flicker = 0.92f + 0.1f * sin(time * 9f + i)
+            paint.color = Color.argb(70, 255, 170, 60)
+            canvas.drawCircle(cxx, cyy, tile * 0.75f * flicker, paint)
+            paint.color = Color.argb(45, 255, 200, 110)
+            canvas.drawCircle(cxx, cyy, tile * 1.25f * flicker, paint)
+            drawSprite(canvas, sTorchLit, cxx, cyy, tile * 1.0f * flicker)
+        } else {
+            drawSprite(canvas, sTorchOff, cxx, cyy, tile * 0.95f)
+            if (lighterOwned) {
+                val pulse = 0.5f + 0.5f * sin(time * 4f)
+                paint.color = Color.argb((40 + 60 * pulse).toInt(), 255, 190, 90)
+                canvas.drawCircle(cxx, cyy, tile * 0.4f, paint)
+            }
+        }
+    }
+
+    private fun drawLighter(canvas: Canvas) {
+        val bob = sin(time * 3f) * tile * 0.05f
+        val pulse = 0.5f + 0.5f * sin(time * 4f)
+        paint.color = Color.argb((50 + 60 * pulse).toInt(), 255, 200, 110)
+        canvas.drawCircle(rect.centerX(), rect.centerY() + bob, tile * 0.42f, paint)
+        drawSprite(canvas, sLighter, rect.centerX(), rect.centerY() + bob, tile * 0.72f)
+    }
+
+    private fun drawMobs(canvas: Canvas, w: Float) {
+        for (m in mobs) {
+            if (m.hp <= 0) continue
+            val cxx = sx(m.x, w)
+            val cyy = sy(m.y)
+            val bounce = abs(sin(time * 4f + m.sprite)) * tile * 0.06f
+            paint.color = Color.argb(95, 0, 0, 0)
+            canvas.drawOval(cxx - tile * 0.28f, cyy + tile * 0.2f, cxx + tile * 0.28f, cyy + tile * 0.34f, paint)
+            val alpha = if (m.hitT > 0f) 160 else 255
+            drawSprite(canvas, sMonsters[m.sprite], cxx, cyy - tile * 0.14f - bounce, tile * 1.15f, alpha)
+            if (m.hitT > 0f) {
+                paint.color = Color.argb((150 * (m.hitT / 0.28f)).toInt(), 255, 70, 60)
+                canvas.drawCircle(cxx, cyy - tile * 0.15f, tile * 0.5f, paint)
+            }
+            // Barre de vie
+            val bw = tile * 0.6f
+            paint.color = Color.argb(200, 25, 25, 30)
+            canvas.drawRect(cxx - bw, cyy - tile * 0.78f, cxx + bw, cyy - tile * 0.68f, paint)
+            paint.color = Color.rgb(220, 60, 55)
+            canvas.drawRect(cxx - bw, cyy - tile * 0.78f, cxx - bw + 2 * bw * (m.hp / 100f), cyy - tile * 0.68f, paint)
+        }
     }
 
     private fun drawTarget(canvas: Canvas, i: Int) {
@@ -1295,6 +1534,18 @@ class GameView(context: Context) : View(context) {
             else -> sHeroDown
         }
         drawSprite(canvas, bmp, cxx, cyy, tile * 1.25f)
+        if (attackAnim > 0f) {
+            val a = (1f - attackAnim) * 360f
+            canvas.save()
+            canvas.rotate(a, cxx, cyy)
+            drawSprite(canvas, sSwordV, cxx, cyy - tile * 0.45f, tile * 0.8f)
+            canvas.restore()
+            paint.color = Color.argb((120 * attackAnim).toInt(), 255, 255, 220)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.08f
+            canvas.drawCircle(cxx, cyy, tile * 0.72f, paint)
+            paint.style = Paint.Style.FILL
+        }
     }
 
     private fun numberColor(n: Int): Int = when (n) {
@@ -1418,8 +1669,14 @@ class GameView(context: Context) : View(context) {
         val c = world.targets.count { it in world.blocks }
         val doorOpen = world.grid[world.door] == World.FLOOR
         val underground = hy >= world.uy0
+        val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
-            underground && world.simonSolved -> "Objectif : le coffre... et choisissez une porte !"
+            world.door3Open -> "Objectif : rejoindre l'ETOILE !"
+            world.mobsSpawned && !world.mobsDead -> "Objectif : battre les 2 monstres (bouton epee) !"
+            world.sokoban2Spawned -> "Objectif : ranger les 5 caisses dans l'alcove ($c2/5)."
+            world.lighterTaken -> "Objectif : allumer les 4 torches (${world.torchLit.size}/4)."
+            world.grid[world.door1] == World.FLOOR -> "Objectif : trouver le briquet au centre de la salle."
+            underground && world.simonSolved -> "Objectif : le coffre-fort, puis la porte de droite."
             underground -> "Objectif : touchez le socle et resolvez l'enigme des couleurs."
             world.trapOpen -> "Objectif : le coffre apparu, puis descendez par la TRAPPE !"
             doorOpen -> "Objectif : ranger les 4 caisses au fond de l'alcove ($c/4)."
@@ -1439,6 +1696,11 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.rgb(17, 20, 30)
         canvas.drawRect(0f, boardBottom, w, h, paint)
         drawBtn(canvas, btnFlag, if (flagMode) "DRAPEAU ON ($flagsLeft)" else "DRAPEAU OFF ($flagsLeft)", flagMode)
+        if (swordOwned) {
+            paint.color = if (attackCd > 0f) Color.rgb(70, 60, 60) else Color.rgb(150, 55, 50)
+            canvas.drawRoundRect(btnSword, btnSword.height() * 0.28f, btnSword.height() * 0.28f, paint)
+            drawSprite(canvas, sSwordV, btnSword.centerX(), btnSword.centerY(), btnSword.height() * 0.82f)
+        }
         drawBtn(canvas, btnZoomOut, "−", false)
         drawBtn(canvas, btnZoomIn, "+", false)
         drawBtn(canvas, btnCenter, "◎", false)
@@ -1470,6 +1732,7 @@ class GameView(context: Context) : View(context) {
         canvas.drawText("$playerName  -  ${diffName(difficulty)}", w / 2f, h * 0.19f, paint)
         drawPanelBtn(canvas, mResume, "REPRENDRE", false)
         drawPanelBtn(canvas, mInv, "INVENTAIRE", false)
+        drawPanelBtn(canvas, mMap, "CARTE DU DONJON", false)
         drawPanelBtn(canvas, mSave, "SAUVEGARDER", false)
         drawPanelBtn(canvas, mReset, "REINITIALISER LES CAISSES", false)
         drawPanelBtn(canvas, mHelp, "COMMENT JOUER ?", false)
@@ -1497,6 +1760,7 @@ class GameView(context: Context) : View(context) {
             arrayOf(null, "Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
             arrayOf(sKey, "Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
             arrayOf(sSwordV, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
+            arrayOf(sLighter, "Briquet", if (lighterOwned) "1" else "0", Color.rgb(200, 210, 225)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
@@ -1575,12 +1839,18 @@ class GameView(context: Context) : View(context) {
             "  (il contient le JOYSTICK, activable dans l'inventaire).",
             "• Coince ? Menu ☰ > Reinitialiser les caisses.",
             "",
-            "4) LE SOUS-SOL",
-            "• Descendez par la trappe, suivez le couloir.",
+            "4) SALLE DES COULEURS (sous-sol)",
             "• Touchez le SOCLE : 4 couleurs clignotent dans un ordre.",
             "• Marchez sur les dalles colorees dans le MEME ordre.",
-            "• Reussi -> un coffre + 2 portes apparaissent.",
-            "• La bonne porte mene a l'etoile : victoire !",
+            "• Reussi -> coffre-fort (EPEE !) + 2 portes.",
+            "• La porte du sud est scellee : une cle a trouver plus tard.",
+            "",
+            "5) SALLE DES TORCHES",
+            "• Ramassez le BRIQUET au centre, allumez les 4 torches.",
+            "• Des caisses tombent : sokoban 2 (5 caisses, plus dur).",
+            "• Resolu -> une porte apparait + 2 MONSTRES.",
+            "• Equipez l'epee et utilisez le bouton epee pour frapper !",
+            "• Monstres vaincus -> la porte s'ouvre -> ETOILE = victoire.",
             "",
             "Touchez l'ecran pour fermer."
         )
@@ -1589,6 +1859,67 @@ class GameView(context: Context) : View(context) {
             canvas.drawText(line, w * 0.07f, y, paint)
             y += h * 0.0265f
         }
+    }
+
+    /** Carte du donjon : vue d'ensemble des zones decouvertes. */
+    private fun drawMap(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(244, 8, 10, 18)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(255, 210, 90)
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.03f
+        canvas.drawText("CARTE DU DONJON", w / 2f, h * 0.09f, paint)
+        paint.isFakeBoldText = false
+
+        val mw = w * 0.92f
+        val mh = h * 0.62f
+        val cs = min(mw / world.wid, mh / world.hei)
+        val ox = (w - cs * world.wid) / 2f
+        val oy = h * 0.13f
+        for (gy in 0 until world.hei) {
+            for (gx in 0 until world.wid) {
+                val i = world.idx(gx, gy)
+                val g = world.grid[i]
+                if (g == World.WALL) continue
+                val known = i in world.revealed
+                val l = ox + gx * cs
+                val t = oy + gy * cs
+                paint.color = when {
+                    gx == world.exitX && gy == world.exitY && known -> Color.rgb(70, 220, 130)
+                    gx == world.trapX && gy == world.trapY && known -> Color.rgb(220, 180, 70)
+                    g == World.DOOR -> Color.rgb(150, 90, 200)
+                    !known -> Color.rgb(38, 42, 56)
+                    i in world.mines || i in world.flagged -> Color.rgb(180, 60, 55)
+                    else -> Color.rgb(180, 186, 200)
+                }
+                canvas.drawRect(l, t, l + cs - 0.6f, t + cs - 0.6f, paint)
+            }
+        }
+        // Le heros
+        paint.color = Color.rgb(255, 220, 60)
+        canvas.drawCircle(ox + (hx + 0.5f) * cs, oy + (hy + 0.5f) * cs, cs * 1.3f, paint)
+
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = h * 0.017f
+        var y = oy + cs * world.hei + h * 0.045f
+        val leg = listOf(
+            Pair("Vous", Color.rgb(255, 220, 60)),
+            Pair("Salle exploree", Color.rgb(180, 186, 200)),
+            Pair("Zone inconnue", Color.rgb(38, 42, 56)),
+            Pair("Porte", Color.rgb(150, 90, 200)),
+            Pair("Trappe / Etoile", Color.rgb(70, 220, 130))
+        )
+        for ((label, col) in leg) {
+            paint.color = col
+            canvas.drawRect(w * 0.1f, y - h * 0.012f, w * 0.1f + h * 0.016f, y + h * 0.004f, paint)
+            paint.color = Color.WHITE
+            canvas.drawText(label, w * 0.1f + h * 0.028f, y, paint)
+            y += h * 0.028f
+        }
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(150, 160, 185)
+        canvas.drawText("Touchez l'ecran pour fermer", w / 2f, h * 0.95f, paint)
     }
 
     private fun drawEnd(canvas: Canvas, w: Float, h: Float) {
@@ -1633,7 +1964,7 @@ class GameView(context: Context) : View(context) {
         val am = e.actionMasked
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&
-            !showMenu && !showInv && !showHelp && !gameOver && !victory
+            !showMenu && !showInv && !showHelp && !showMap && !gameOver && !victory
         ) {
             when (am) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -1664,7 +1995,7 @@ class GameView(context: Context) : View(context) {
                 dragging = false
             }
             MotionEvent.ACTION_MOVE -> {
-                if (state != PLAYING || showMenu || showInv || showHelp || miniPlate >= 0) return true
+                if (state != PLAYING || showMenu || showInv || showHelp || showMap || miniPlate >= 0) return true
                 val dx = e.x - lastX
                 val dy = e.y - lastY
                 if (!dragging && hypot(e.x - downX, e.y - downY) > tile * 0.35f) dragging = true
@@ -1693,6 +2024,7 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun handleUp(e: MotionEvent): Boolean {
+        if (showMap) { showMap = false; return true }
         if (showHelp) { showHelp = false; return true }
         if (showInv) {
             if (invJoyRect.contains(e.x, e.y) && joyOwned) {
@@ -1739,6 +2071,7 @@ class GameView(context: Context) : View(context) {
             when {
                 mResume.contains(e.x, e.y) -> showMenu = false
                 mInv.contains(e.x, e.y) -> showInv = true
+                mMap.contains(e.x, e.y) -> { showMap = true; showMenu = false }
                 mSave.contains(e.x, e.y) -> { saveGame(); showMenu = false; showMsg("Partie sauvegardee.") }
                 mReset.contains(e.x, e.y) -> {
                     world.resetPuzzle(); saveGame(); showMenu = false
@@ -1761,6 +2094,7 @@ class GameView(context: Context) : View(context) {
             showMsg(if (flagMode) "Mode drapeau : touchez une dalle pour la marquer." else "Mode normal.")
             return true
         }
+        if (swordOwned && btnSword.contains(e.x, e.y)) { doAttack(); return true }
         if (btnZoomOut.contains(e.x, e.y)) { tile = (tile * 0.82f).coerceAtLeast(34f); clampCam(); return true }
         if (btnZoomIn.contains(e.x, e.y)) { tile = (tile * 1.22f).coerceAtMost(240f); clampCam(); return true }
         if (btnCenter.contains(e.x, e.y)) { following = true; return true }

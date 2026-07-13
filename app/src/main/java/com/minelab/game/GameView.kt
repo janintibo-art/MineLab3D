@@ -134,7 +134,7 @@ class GameView(context: Context) : View(context) {
     private val shaderCache = HashMap<Int, BitmapShader>()
     private val shMat = Matrix()
 
-    private fun terShader(bmp: Bitmap, scale: Float): BitmapShader {
+    private fun terShader(bmp: Bitmap, scale: Float, scrollX: Float, scrollY: Float): BitmapShader {
         val key = System.identityHashCode(bmp)
         val sh = shaderCache.getOrPut(key) {
             BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
@@ -143,14 +143,14 @@ class GameView(context: Context) : View(context) {
         val originY = (boardTop + boardBottom) / 2f - camY * tile
         shMat.reset()
         shMat.setScale(tile * scale / bmp.width, tile * scale / bmp.height)
-        shMat.postTranslate(originX, originY)
+        shMat.postTranslate(originX + scrollX, originY + scrollY)
         sh.setLocalMatrix(shMat)
         return sh
     }
 
-    private fun useTer(bmp: Bitmap, scale: Float = 1f, alpha: Int = 255) {
+    private fun useTer(bmp: Bitmap, scale: Float = 1f, alpha: Int = 255, scrollX: Float = 0f, scrollY: Float = 0f) {
         terPaint.color = Color.BLACK
-        terPaint.shader = terShader(bmp, scale)
+        terPaint.shader = terShader(bmp, scale, scrollX, scrollY)
         terPaint.alpha = alpha
     }
     private var lastTime = System.nanoTime()
@@ -1928,15 +1928,19 @@ class GameView(context: Context) : View(context) {
         fun terOf(gx: Int, gy: Int): Int =
             if (!world.inside(gx, gy)) World.TER_WATER else world.terrain[world.idx(gx, gy)]
 
-        // 1. La mer : un seul rectangle continu
-        useTer(sWater, 1.6f)
+        // 1. La mer : un seul rectangle continu, motif large qui derive lentement
+        useTer(
+            sWater, 2.4f, 255,
+            sin(time * 0.22f) * tile * 0.8f,
+            cos(time * 0.17f) * tile * 0.6f
+        )
         canvas.drawRect(
             sx(x0.toFloat(), w), sy(y0.toFloat()),
             sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), terPaint
         )
         terPaint.shader = null
-        val wv = 0.5f + 0.5f * sin(time * 0.9f)
-        paint.color = Color.argb((12 + 14 * wv).toInt(), 190, 235, 255)
+        val wv = 0.5f + 0.5f * sin(time * 0.7f)
+        paint.color = Color.argb((6 + 8 * wv).toInt(), 200, 240, 255)
         canvas.drawRect(
             sx(x0.toFloat(), w), sy(y0.toFloat()),
             sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), paint
@@ -1976,12 +1980,19 @@ class GameView(context: Context) : View(context) {
             }
         }
 
-        // 2. Hauts-fonds : voile sable + reflets (peinture simple, pas de shader)
+        // 2. Hauts-fonds : lagon turquoise. Toutes les formes sont dessinees
+        // OPAQUES dans un calque unique dont l'alpha global est applique a la fin :
+        // les chevauchements ne se voient plus, la zone est parfaitement unie.
+        val lagoonLayer = canvas.saveLayerAlpha(
+            sx(x0.toFloat(), w), sy(y0.toFloat()),
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 80
+        )
         terPaint.shader = null
-        terPaint.color = Color.argb(80, 240, 220, 160)
+        terPaint.color = Color.rgb(190, 245, 235)
         layer({ it == World.TER_SHALLOW || it == World.TER_SHORE || it == World.TER_SAND ||
                 it == World.TER_GRASS || it == World.TER_DIRT || it == World.TER_EARTH },
             2, 0.2f, 0.4f, 101)
+        canvas.restoreToCount(lagoonLayer)
         terPaint.color = Color.BLACK
 
         // 3. Le sable (tout ce qui n'est pas eau)
@@ -1999,10 +2010,10 @@ class GameView(context: Context) : View(context) {
                 val t2 = terOf(gx + d.first, gy + d.second)
                 if (t2 != World.TER_SHALLOW && t2 != World.TER_WATER) continue
                 val foam = 0.5f + 0.5f * sin(time * 1.4f + gx * 0.9f + gy * 0.7f)
-                paint.color = Color.argb((45 + 70 * foam).toInt(), 255, 255, 255)
-                val px = sx(gx + 0.5f + d.first * 0.42f, w)
-                val py = sy(gy + 0.5f + d.second * 0.42f)
-                canvas.drawCircle(px, py, tile * (0.3f + 0.15f * foam), paint)
+                paint.color = Color.argb((25 + 45 * foam).toInt(), 255, 255, 255)
+                val px = sx(gx + 0.5f + d.first * (0.35f + 0.12f * foam), w)
+                val py = sy(gy + 0.5f + d.second * (0.35f + 0.12f * foam))
+                canvas.drawCircle(px, py, tile * (0.22f + 0.12f * foam), paint)
             }
         }
 

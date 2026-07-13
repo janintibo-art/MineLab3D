@@ -1,44 +1,35 @@
-# MineLab 2D 🚩💣🗝️
+# MineLab 🚩💣🗝️📦
 
-Jeu Android natif (Kotlin) : un **grand plateau de démineur (41×41) intégré dans un labyrinthe**,
-vu de dessus. Le petit bonhomme **se déplace tout seul** vers la dalle que vous touchez.
+Jeu Android natif (Kotlin), vue de dessus. Trois zones, sans labyrinthe :
 
-## Règles
-- **Touchez une dalle inconnue** → le héros y va et la **sonde**. Sûre → elle se retourne avec son
-  chiffre (cascade automatique sur les zones à 0). Mine → BOUM, ‑20 PV.
-- **Appui long** (ou bouton DRAPEAU) → poser / retirer un **drapeau** 🚩.
-- **Touchez une dalle marquée** → le héros la **désamorce sans aucun risque**. On n'est donc
-  **jamais obligé de faire exploser une mine** : marquez, puis désamorcez.
-- **Glissez le doigt** pour déplacer la carte. Boutons **−/+** (zoom), **◎** (recentrer),
-  **⟳** (rejouer), **?** (aide).
+## 1. La grande salle de démineur
+Un vrai plateau de démineur ouvert. Touchez une dalle : le héros y va tout seul et la sonde.
+Les **chiffres sont figés sur la disposition d'origine des mines** — ils ne changent jamais,
+même après un désamorçage. Traversez jusqu'au passage de droite.
 
-## Énigme (salle en bas à droite)
-1. Placez le héros à côté d'un **bloc**, puis touchez-le pour le **pousser** (façon Sokoban).
-2. Poussez les **3 blocs** sur les **3 dalles de pression**.
-3. Le **coffre** se déverrouille → touchez-le pour récupérer la **clé** 🗝️.
-4. La clé ouvre la **porte violette** → derrière : l'**étoile verte** = victoire !
+- Appui long (ou bouton DRAPEAU) = marquer une dalle 🚩
+- Retoucher une dalle marquée = le héros la **désamorce sans risque**, mais le **drapeau est consommé**
+- Vous avez exactement autant de drapeaux que de mines : un drapeau gaspillé = une mine à faire
+  sauter plus tard (‑20 PV)
 
-Le combat contre les monstres sera ajouté ensuite.
+## 2. La salle du coffre
+Poussez les 3 blocs sur les 3 dalles orange (placez-vous à côté, touchez le bloc).
+Le **coffre** se met à briller, s'ouvre, et une **clé en or** s'en échappe (animation).
+La clé ouvre la **porte violette**.
 
+## 3. La salle de rangement (Sokoban à solution unique)
+4 caisses à ranger sur les 4 dalles bleues au fond d'une **alcôve en cul-de-sac**.
+Les caisses ne peuvent monter que par **le puits du milieu**, et le héros ne peut les contourner
+que par **le puits de droite** : il n'existe donc qu'**une seule solution**, et il faut ranger
+la caisse **la plus profonde en premier**. Les 4 rangées → la **trappe s'ouvre** = victoire.
+En cas de blocage : Menu ☰ → *Réinitialiser les caisses*.
 
 ## Écran de présentation
-- **Nom du héros** (touchez le champ pour le modifier)
-- **Difficulté** : FACILE (31×31, 10 % de mines) / NORMAL (41×41, 13 %) / DIFFICILE (51×51, 17 %)
-- **VIE ILLIMITÉE** : mode test, aucun dégât (pratique pour tester les modifs)
-- **NOUVELLE PARTIE** / **CONTINUER** (sauvegarde automatique)
+Nom du héros · Difficulté (FACILE / NORMAL / DIFFICILE) · **VIE ILLIMITÉE** (mode test) ·
+Nouvelle partie · Continuer (sauvegarde automatique).
 
-## Drapeaux limités
-Vous avez **exactement autant de drapeaux que de mines**. Désamorcer une mine **consomme** son
-drapeau. Un drapeau posé sur une dalle vide puis désamorcé est **gaspillé** : il vous manquera un
-drapeau plus tard, et vous devrez faire exploser une mine (‑20 PV). Le coffre offre **+5 drapeaux**.
-
-## Menu en jeu (bouton ☰)
-Reprendre · **Inventaire** (drapeaux, clé, mines désamorcées, PV, épée à venir) · Sauvegarder ·
-Comment jouer · Nouvelle partie · Menu principal.
-
-## Compiler l'APK
-Poussez sur GitHub : le workflow `.github/workflows/build.yml` compile l'APK.
-Onglet **Actions** → dernier run → **Artifacts** → `MineLab3D-debug` (contient `app-debug.apk`).
+## Menu en jeu (☰)
+Reprendre · Inventaire · Sauvegarder · Réinitialiser les caisses · Aide · Nouvelle partie · Menu principal.
 
 ## Commandes Termux
 ```bash
@@ -48,6 +39,7 @@ cp -r ~/tmpml/MineLab3D/. ~/MineLab3D/
 rm -rf ~/tmpml
 cd ~/MineLab3D
 git add -A
-git commit -m "Carte agrandie, deplacement au doigt, salle a enigme (blocs/coffre/cle/porte)"
+git commit -m "Fix chiffres demineur, suppression labyrinthe, graphismes, sokoban unique"
 git push
 ```
+Puis onglet **Actions** → dernier run → **Artifacts** → `MineLab3D-debug`.

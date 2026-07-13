@@ -158,6 +158,26 @@ class GameView(context: Context) : View(context) {
     private val sFloorCobble: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.t_cobble)
     private val sWall: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_brick)
     private val sWallMossy: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.wall_mossy)
+    // L'ile
+    private val sGrass: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_grass)
+    private val sEarth: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_earth)
+    private val sDirt: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_dirt)
+    private val sSand: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_sand)
+    private val sShore: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shore)
+    private val sShallow: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shallow)
+    private val sWater: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_water)
+    private val sHouses: Array<Bitmap> = arrayOf(
+        BitmapFactory.decodeResource(resources, R.drawable.house1),
+        BitmapFactory.decodeResource(resources, R.drawable.house2),
+        BitmapFactory.decodeResource(resources, R.drawable.house3),
+        BitmapFactory.decodeResource(resources, R.drawable.house4),
+        BitmapFactory.decodeResource(resources, R.drawable.house5),
+        BitmapFactory.decodeResource(resources, R.drawable.house6),
+        BitmapFactory.decodeResource(resources, R.drawable.house7),
+        BitmapFactory.decodeResource(resources, R.drawable.house8),
+        BitmapFactory.decodeResource(resources, R.drawable.house9),
+        BitmapFactory.decodeResource(resources, R.drawable.house10)
+    )
     private val sMonsters: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.mob1),
         BitmapFactory.decodeResource(resources, R.drawable.mob2),
@@ -269,6 +289,7 @@ class GameView(context: Context) : View(context) {
     /** La zone musicale courante. */
     private fun currentZone(): Int {
         if (state == TITLE) return 0
+        if (world.isIsland(hx, hy)) return if (world.inVillage(hx, hy)) 9 else 8
         if (mobs.any { it.hp > 0 }) return 7
         return when {
             hy >= world.uy0 -> when {
@@ -387,6 +408,7 @@ class GameView(context: Context) : View(context) {
         e.putString("lights", world.lights.joinToString(",") { if (it) "1" else "0" })
         e.putInt("wave", world.wave)
         e.putBoolean("boss", world.bossDefeated)
+        e.putBoolean("ile", world.islandVisited)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -459,6 +481,7 @@ class GameView(context: Context) : View(context) {
         if (prefs.getBoolean("lgt", false)) world.openRuneDoor()
         world.wave = prefs.getInt("wave", 0)
         if (prefs.getBoolean("boss", false)) world.bossVictory()
+        world.islandVisited = prefs.getBoolean("ile", false)
         if (prefs.getBoolean("d3o", false)) world.openDoor3()
         mobs.clear()
         val ms = prefs.getString("mobs", "") ?: ""
@@ -557,6 +580,7 @@ class GameView(context: Context) : View(context) {
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         attackCd = (attackCd - dt).coerceAtLeast(0f)
+        teleCd = (teleCd - dt).coerceAtLeast(0f)
         sudokuShake = (sudokuShake - dt).coerceAtLeast(0f)
         attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
@@ -830,11 +854,21 @@ class GameView(context: Context) : View(context) {
             spawnWave(1)
             saveGame()
         }
-        // Le point de teleportation : fin de l'aventure
-        if (world.isTeleport(hx, hy)) {
-            audio.play("win")
-            victory = true
-            prefs.edit().putBoolean("has", false).apply()
+        // Le portail du donjon -> l'ILE
+        if (world.isTeleport(hx, hy) && teleCd <= 0f) {
+            teleportTo(world.cx(world.islandPortal), world.cy(world.islandPortal))
+            if (!world.islandVisited) {
+                world.islandVisited = true
+                showMsg("Vous emergez a la surface : une grande ILE vous accueille !")
+            } else showMsg("Retour a la surface.")
+            saveGame()
+            return
+        }
+        // Le portail de l'ile -> retour au donjon
+        if (world.isIslandPortal(hx, hy) && teleCd <= 0f) {
+            teleportTo(world.exitX, world.exitY)
+            showMsg("Vous replongez dans le donjon.")
+            saveGame()
             return
         }
         // Saisie de l'enigme des couleurs (en arrivant sur une dalle)
@@ -886,6 +920,19 @@ class GameView(context: Context) : View(context) {
         path = emptyList(); pathStep = 0
         audio.play("push")
         saveGame()
+    }
+
+    private var teleCd = 0f
+
+    private fun teleportTo(tx: Int, ty: Int) {
+        hx = tx; hy = ty
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        following = true
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        teleCd = 1.2f
+        audio.play("pickup")
     }
 
     private fun clampCam() {
@@ -1261,6 +1308,7 @@ class GameView(context: Context) : View(context) {
 
     private fun onFlag(gx: Int, gy: Int) {
         if (gameOver || victory) return
+        if (world.isIsland(gx, gy)) return
         if (!world.isFloor(gx, gy)) return
         val i = world.idx(gx, gy)
         if (i in world.blocks || i == world.chest) return
@@ -1517,6 +1565,10 @@ class GameView(context: Context) : View(context) {
                 rect.set(l + gap, t + gap, l + tile - gap, t + tile - gap)
                 val i = world.idx(gx, gy)
 
+                // --- L'ILE (surface)
+                val ter = world.terrain[i]
+                if (ter != World.TER_NONE) { drawIslandCell(canvas, gx, gy, i, ter); continue }
+
                 if (world.grid[i] == World.WALL) { drawWall(canvas, gx, gy); continue }
                 if (world.grid[i] == World.DOOR) { drawDoor(canvas); continue }
 
@@ -1601,6 +1653,39 @@ class GameView(context: Context) : View(context) {
         bmpPaint.alpha = alpha
         canvas.drawBitmap(bmp, null, r, bmpPaint)
         bmpPaint.alpha = 255
+    }
+
+    /** Une case de l'ile : mer animee, plage, herbe, chemin, maison. */
+    private fun drawIslandCell(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
+        val bmp = when (ter) {
+            World.TER_GRASS -> sGrass
+            World.TER_EARTH -> sEarth
+            World.TER_DIRT -> sDirt
+            World.TER_SAND -> sSand
+            World.TER_SHORE -> sShore
+            World.TER_SHALLOW -> sShallow
+            else -> sWater
+        }
+        tmpRect.set(rect.left - tile * 0.06f, rect.top - tile * 0.06f, rect.right + tile * 0.06f, rect.bottom + tile * 0.06f)
+        drawTex(canvas, bmp, tmpRect)
+
+        // Scintillement de la mer
+        if (ter == World.TER_WATER || ter == World.TER_SHALLOW || ter == World.TER_SHORE) {
+            val wv = sin(time * 1.6f + gx * 0.7f + gy * 0.5f)
+            paint.color = Color.argb((16 + 16 * wv).toInt().coerceIn(0, 40), 255, 255, 255)
+            canvas.drawRect(tmpRect, paint)
+            if (ter == World.TER_WATER) {
+                paint.color = Color.argb(30, 20, 80, 130)
+                canvas.drawRect(tmpRect, paint)
+            }
+        }
+        // La maison
+        val hn = world.houses[i]
+        if (hn != null) {
+            drawSprite(canvas, sHouses[(hn - 1).coerceIn(0, 9)], rect.centerX(), rect.centerY() - tile * 0.28f, tile * 2.3f)
+        }
+        // Le portail d'arrivee
+        if (world.isIslandPortal(gx, gy)) drawTeleport(canvas)
     }
 
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
@@ -2090,6 +2175,8 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village de l'ile. (Contenu a venir !)"
+            world.isIsland(hx, hy) -> "L'ile ! Explorez la plage et rejoignez le village au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
             world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"
             world.lightsSolved -> "Objectif : entrer dans la salle du BOSS."
@@ -2320,8 +2407,11 @@ class GameView(context: Context) : View(context) {
             "",
             "8) LA SALLE DU BOSS : 3 vagues de monstres, puis le BOSS.",
             "• Victoire -> la porte scellee s'ouvre et un PORTAIL",
-            "  apparait au centre de la salle des couleurs. Marchez",
-            "  dessus pour terminer l'aventure !",
+            "  apparait au centre de la salle des couleurs.",
+            "",
+            "9) L'ILE : le portail vous emmene a la SURFACE, sur une",
+            "   grande ile (mer, plage, village). Le portail de l'ile",
+            "   vous ramene au donjon. (Village : contenu a venir.)",
             "",
             "Touchez l'ecran pour fermer."
         )
@@ -2356,12 +2446,30 @@ class GameView(context: Context) : View(context) {
             for (gx in 0 until world.wid) {
                 val i = world.idx(gx, gy)
                 val g = world.grid[i]
+                val ter = world.terrain[i]
+                if (ter != World.TER_NONE) {
+                    val l2 = ox + gx * cs
+                    val t2 = oy + gy * cs
+                    paint.color = when (ter) {
+                        World.TER_WATER -> Color.rgb(30, 80, 130)
+                        World.TER_SHALLOW -> Color.rgb(60, 130, 175)
+                        World.TER_SHORE -> Color.rgb(150, 190, 195)
+                        World.TER_SAND -> Color.rgb(225, 205, 160)
+                        World.TER_DIRT -> Color.rgb(120, 95, 70)
+                        World.TER_EARTH -> Color.rgb(160, 130, 95)
+                        else -> Color.rgb(85, 140, 55)
+                    }
+                    if (world.houses.containsKey(i)) paint.color = Color.rgb(200, 80, 60)
+                    if (world.isIslandPortal(gx, gy)) paint.color = Color.rgb(190, 150, 255)
+                    canvas.drawRect(l2, t2, l2 + cs - 0.6f, t2 + cs - 0.6f, paint)
+                    continue
+                }
                 if (g == World.WALL) continue
                 val known = i in world.revealed
                 val l = ox + gx * cs
                 val t = oy + gy * cs
                 paint.color = when {
-                    gx == world.exitX && gy == world.exitY && known -> Color.rgb(70, 220, 130)
+                    world.isIslandPortal(gx, gy) || (world.isTeleport(gx, gy)) -> Color.rgb(180, 140, 255)
                     gx == world.trapX && gy == world.trapY && known -> Color.rgb(220, 180, 70)
                     g == World.DOOR -> Color.rgb(150, 90, 200)
                     !known -> Color.rgb(38, 42, 56)
@@ -2553,8 +2661,8 @@ class GameView(context: Context) : View(context) {
 
         val bw = w * 0.9f
         val bx = (w - bw) / 2f
-        val rh = h * 0.052f
-        var y = h * 0.115f
+        val rh = h * 0.047f
+        var y = h * 0.112f
 
         // Musique ON/OFF + volume
         setMusic.set(bx, y, bx + bw * 0.52f, y + rh)
@@ -2607,11 +2715,11 @@ class GameView(context: Context) : View(context) {
             val t = audio.zoneTrack[z]
             paint.color = if (t == Audio.NONE) Color.rgb(140, 140, 150) else Color.rgb(120, 200, 240)
             canvas.drawText(
-                if (t == Audio.NONE) "aucune" else "musique ${t + 1}  ▶",
+                if (t == Audio.NONE) "aucune" else "${Audio.TRACK_NAMES[t]}  ▶",
                 bx + bw - rh * 0.35f, setRows[z].centerY() + rh * 0.11f, paint
             )
             paint.isFakeBoldText = false
-            y += rh + h * 0.009f
+            y += rh + h * 0.008f
         }
 
         paint.textAlign = Paint.Align.CENTER

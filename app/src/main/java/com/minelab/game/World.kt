@@ -32,15 +32,35 @@ class World(
         const val WALL = 0
         const val FLOOR = 1
         const val DOOR = 2
+
+        // Terrains de la surface (0 = donjon)
+        const val TER_NONE = 0
+        const val TER_GRASS = 1
+        const val TER_EARTH = 2
+        const val TER_DIRT = 3
+        const val TER_SAND = 4
+        const val TER_SHORE = 5
+        const val TER_SHALLOW = 6
+        const val TER_WATER = 7
     }
 
     private val rnd = Random(seed)
 
     val wid = maxOf(hallW + 24, 40)
     val uy0 = maxOf(hallH, 11) + 3
-    val hei = uy0 + 22
+    val hei = uy0 + 22 + 36
+    val iy0 = uy0 + 24          // premiere ligne de l'ile
 
     val grid = IntArray(wid * hei) { WALL }
+    /** Terrain de surface (0 = donjon, sinon herbe/sable/mer...). */
+    val terrain = IntArray(wid * hei) { TER_NONE }
+
+    /** L'ile : maisons (case -> numero de sprite) et portail d'arrivee. */
+    val houses = HashMap<Int, Int>()
+    var islandPortal = -1
+    var islandVisited = false
+    private val villageCx = wid / 2
+    private var villageCy = 0
 
     val layout = HashSet<Int>()
     val mines = HashSet<Int>()
@@ -146,6 +166,7 @@ class World(
         buildCorridor2()
         buildSudoku()
         buildLights()
+        buildIsland()
         placeMines()
         placeHearts()
         totalMines = mines.size
@@ -311,6 +332,94 @@ class World(
         exitX = 16
         exitY = uy0 + 6
     }
+
+    /**
+     * [9] L'ILE : on sort du donjon par le portail et on arrive a la surface.
+     * Mer -> haut-fond -> rivage -> plage -> herbe, chemins de terre et village.
+     */
+    private fun buildIsland() {
+        val h = 34
+        val top = iy0
+        val cxI = wid / 2f
+        val cyI = top + h / 2f
+        val rx = wid / 2f - 1.5f
+        val ry = h / 2f - 1.5f
+        villageCy = (cyI + 5).toInt()
+
+        for (y in top until top + h) {
+            for (x in 0 until wid) {
+                if (!inside(x, y)) continue
+                val i = idx(x, y)
+                val dx = (x + 0.5f - cxI) / rx
+                val dy = (y + 0.5f - cyI) / ry
+                var d = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                // Cote irreguliere
+                val ang = kotlin.math.atan2(dy.toDouble(), dx.toDouble()).toFloat()
+                d *= 1f + 0.10f * kotlin.math.sin(ang * 3f + seed.toFloat() % 6.28f) +
+                        0.06f * kotlin.math.sin(ang * 5f + 1.3f)
+                when {
+                    d < 0.60f -> { terrain[i] = TER_GRASS; grid[i] = FLOOR }
+                    d < 0.72f -> { terrain[i] = TER_SAND; grid[i] = FLOOR }
+                    d < 0.80f -> { terrain[i] = TER_SHORE; grid[i] = FLOOR }
+                    d < 0.90f -> { terrain[i] = TER_SHALLOW; grid[i] = WALL }
+                    else -> { terrain[i] = TER_WATER; grid[i] = WALL }
+                }
+                revealed.add(i)
+            }
+        }
+
+        // Portail d'arrivee, au centre de l'ile
+        islandPortal = idx(cxI.toInt(), (cyI - 4).toInt())
+        grid[islandPortal] = FLOOR
+        terrain[islandPortal] = TER_DIRT
+
+        // Chemins de terre : du portail vers la place du village, puis vers la plage
+        val px = cx(islandPortal)
+        val py = cy(islandPortal)
+        for (y in py..villageCy) paveDirt(px, y)
+        for (x in px - 6..px + 6) paveDirt(x, villageCy)
+        for (y in villageCy..villageCy + 6) paveDirt(px, y)
+        for (x in px - 4..px + 4) paveDirt(x, villageCy + 6)
+
+        placeHouses()
+    }
+
+    private fun paveDirt(x: Int, y: Int) {
+        if (!inside(x, y)) return
+        val i = idx(x, y)
+        if (terrain[i] == TER_GRASS || terrain[i] == TER_SAND) {
+            terrain[i] = TER_DIRT
+            grid[i] = FLOOR
+        }
+    }
+
+    /** Les 10 maisons du village, le long des chemins. */
+    private fun placeHouses() {
+        val px = cx(islandPortal)
+        val spots = listOf(
+            Pair(px - 5, villageCy - 2), Pair(px - 2, villageCy - 2),
+            Pair(px + 2, villageCy - 2), Pair(px + 5, villageCy - 2),
+            Pair(px - 5, villageCy + 2), Pair(px - 2, villageCy + 2),
+            Pair(px + 2, villageCy + 2), Pair(px + 5, villageCy + 2),
+            Pair(px - 3, villageCy + 5), Pair(px + 3, villageCy + 5)
+        )
+        var k = 1
+        for ((x, y) in spots) {
+            if (!inside(x, y)) continue
+            val i = idx(x, y)
+            if (terrain[i] == TER_WATER || terrain[i] == TER_SHALLOW) continue
+            houses[i] = k
+            grid[i] = WALL                 // on ne traverse pas une maison
+            if (terrain[i] == TER_DIRT) terrain[i] = TER_EARTH
+            k++
+            if (k > 10) break
+        }
+    }
+
+    fun isIsland(x: Int, y: Int) = inside(x, y) && terrain[idx(x, y)] != TER_NONE
+    fun inVillage(x: Int, y: Int) =
+        isIsland(x, y) && kotlin.math.abs(x - villageCx) <= 8 &&
+                kotlin.math.abs(y - villageCy) <= 8
 
     fun inBossRoom(x: Int, y: Int) = x in 12..20 && y in uy0 + 11..uy0 + 19
 
@@ -505,6 +614,7 @@ class World(
     }
 
     fun isTeleport(x: Int, y: Int) = teleportActive && x == exitX && y == exitY
+    fun isIslandPortal(x: Int, y: Int) = islandPortal >= 0 && idx(x, y) == islandPortal
 
     fun canPushInto(x: Int, y: Int): Boolean {
         if (!isFloor(x, y)) return false

@@ -28,17 +28,28 @@ class Audio(private val ctx: Context) {
             "Couloir du sous-sol",
             "Salle des couleurs",
             "Salle des torches",
-            "Combat / Etoile"
+            "Combat / Boss",
+            "Ile - bord de mer",
+            "Ile - village"
         )
+        /** 8 pistes de donjon + 6 pistes de village. */
         val TRACKS = intArrayOf(
             R.raw.music1, R.raw.music2, R.raw.music3, R.raw.music4,
-            R.raw.music5, R.raw.music6, R.raw.music7, R.raw.music8
+            R.raw.music5, R.raw.music6, R.raw.music7, R.raw.music8,
+            R.raw.village1, R.raw.village2, R.raw.village3,
+            R.raw.village4, R.raw.village5, R.raw.village6
+        )
+        val TRACK_NAMES = arrayOf(
+            "donjon 1", "donjon 2", "donjon 3", "donjon 4",
+            "donjon 5", "donjon 6", "donjon 7", "donjon 8",
+            "village lent 1", "village lent 2", "village rapide 1",
+            "village rapide 2", "village joyeux 1", "village joyeux 2"
         )
         const val NONE = -1
     }
 
     /** zoneTrack[zone] = index de piste (0..7) ou NONE. */
-    val zoneTrack = IntArray(ZONES.size) { it % TRACKS.size }
+    val zoneTrack = IntArray(ZONES.size) { if (it < 8) it else if (it == 8) 8 else 12 }
 
     var musicOn = true
     var sfxOn = true

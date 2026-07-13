@@ -374,10 +374,10 @@ class World(
                 d *= 1f + 0.10f * kotlin.math.sin(ang * 3f + seed.toFloat() % 6.28f) +
                         0.06f * kotlin.math.sin(ang * 5f + 1.3f)
                 when {
-                    d < 0.60f -> { terrain[i] = TER_GRASS; grid[i] = FLOOR }
-                    d < 0.72f -> { terrain[i] = TER_SAND; grid[i] = FLOOR }
-                    d < 0.80f -> { terrain[i] = TER_SHORE; grid[i] = FLOOR }
-                    d < 0.90f -> { terrain[i] = TER_SHALLOW; grid[i] = WALL }
+                    d < 0.62f -> { terrain[i] = TER_GRASS; grid[i] = FLOOR }
+                    d < 0.76f -> { terrain[i] = TER_SAND; grid[i] = FLOOR }
+                    d < 0.84f -> { terrain[i] = TER_SHORE; grid[i] = FLOOR }
+                    d < 0.93f -> { terrain[i] = TER_SHALLOW; grid[i] = WALL }
                     else -> { terrain[i] = TER_WATER; grid[i] = WALL }
                 }
                 revealed.add(i)
@@ -397,7 +397,7 @@ class World(
         for (y in villageCy..villageCy + 6) paveDirt(px, y)
         for (x in px - 4..px + 4) paveDirt(x, villageCy + 6)
 
-        placeHouses()
+        placeVillagers()
         placeDecor()
     }
 
@@ -416,15 +416,15 @@ class World(
                 val roll = rnd.nextInt(100)
                 when (t) {
                     TER_GRASS -> when {
-                        roll < 9 -> { decor[i] = Pair(0, 1 + rnd.nextInt(29)); grid[i] = WALL }
-                        roll < 16 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
-                        roll < 19 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
+                        roll < 7 -> { decor[i] = Pair(0, 1 + rnd.nextInt(29)); grid[i] = WALL }
+                        roll < 13 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
+                        roll < 15 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
                     }
                     TER_SAND -> when {
-                        roll < 4 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
-                        roll < 6 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
+                        roll < 3 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
+                        roll < 5 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
                     }
-                    TER_SHORE -> if (roll < 3) { decor[i] = Pair(3, 1 + rnd.nextInt(5)); grid[i] = WALL }
+                    TER_SHORE -> if (roll < 2) { decor[i] = Pair(3, 1 + rnd.nextInt(5)); grid[i] = WALL }
                 }
             }
         }
@@ -440,33 +440,10 @@ class World(
     }
 
     /** Les 10 maisons du village, le long des chemins. */
-    private fun placeHouses() {
+    /** Villageois et animaux de la place du village. */
+    private fun placeVillagers() {
         val px = cx(islandPortal)
-        val spots = listOf(
-            Pair(px - 5, villageCy - 2), Pair(px - 2, villageCy - 2),
-            Pair(px + 2, villageCy - 2), Pair(px + 5, villageCy - 2),
-            Pair(px - 5, villageCy + 2), Pair(px - 2, villageCy + 2),
-            Pair(px + 2, villageCy + 2), Pair(px + 5, villageCy + 2),
-            Pair(px - 3, villageCy + 5), Pair(px + 3, villageCy + 5)
-        )
-        var k = 1
-        for ((x, y) in spots) {
-            if (!inside(x, y)) continue
-            val i = idx(x, y)
-            if (terrain[i] == TER_WATER || terrain[i] == TER_SHALLOW) continue
-            houses[i] = k
-            grid[i] = WALL                 // on ne traverse pas une maison
-            if (terrain[i] == TER_DIRT) terrain[i] = TER_EARTH
-            // Le paillasson : la case juste en dessous
-            val m = idx(x, y + 1)
-            if (inside(x, y + 1) && grid[m] == FLOOR) {
-                houseMats[m] = k
-                terrain[m] = TER_EARTH
-            }
-            buildInterior(k, m)
-            k++
-            if (k > 10) break
-        }
+        // (Les batiments seront ajoutes un par un, plus tard.)
         // Villageois et animaux dans le village
         val vSpots = listOf(
             Pair(px - 4, villageCy), Pair(px + 4, villageCy), Pair(px, villageCy + 3),
@@ -494,42 +471,6 @@ class World(
      * L'interieur d'une maison : une piece 9x7 en parquet, meublee avec les 9 objets
      * de sa planche (maison 1 = salon, 2 = cuisine, 3 = chambre, etc.).
      */
-    private fun buildInterior(n: Int, matCell: Int) {
-        val col = (n - 1) % 3
-        val row = (n - 1) / 3
-        val rx0 = 1 + col * 13
-        val ry0 = hy0 + 1 + row * 9
-        if (ry0 + 7 >= hei || rx0 + 9 >= wid) return
-
-        houseFloor[n] = 1 + ((n - 1) % 12)
-        for (y in ry0 until ry0 + 7) for (x in rx0 until rx0 + 9) {
-            val i = idx(x, y)
-            grid[i] = FLOOR
-            terrain[i] = TER_WOOD
-            revealed.add(i)
-        }
-        // La porte de sortie, en bas au milieu
-        val exitCell = idx(rx0 + 4, ry0 + 6)
-        houseExit[exitCell] = n
-        houseEntry[n] = exitCell
-        if (matCell >= 0) houseMats[matCell] = n
-
-        // Les 9 meubles de la planche n, le long des murs
-        val spots = listOf(
-            Pair(rx0 + 1, ry0), Pair(rx0 + 3, ry0), Pair(rx0 + 5, ry0), Pair(rx0 + 7, ry0),
-            Pair(rx0, ry0 + 2), Pair(rx0 + 8, ry0 + 2),
-            Pair(rx0, ry0 + 4), Pair(rx0 + 8, ry0 + 4),
-            Pair(rx0 + 7, ry0 + 5)
-        )
-        for ((k, sp) in spots.withIndex()) {
-            val (x, y) = sp
-            val i = idx(x, y)
-            props[i] = (n - 1) * 9 + k + 1
-            grid[i] = WALL
-            terrain[i] = TER_WOOD
-        }
-    }
-
     fun isIsland(x: Int, y: Int) =
         inside(x, y) && terrain[idx(x, y)] != TER_NONE && terrain[idx(x, y)] != TER_WOOD
     fun isInterior(x: Int, y: Int) = inside(x, y) && terrain[idx(x, y)] == TER_WOOD

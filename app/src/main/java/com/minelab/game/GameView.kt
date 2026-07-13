@@ -164,8 +164,6 @@ class GameView(context: Context) : View(context) {
     private val sEarth: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_earth)
     private val sDirt: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_dirt)
     private val sSand: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_sand)
-    private val sShore: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shore)
-    private val sShallow: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shallow)
     private val sWater: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_water)
     private val sFloorWoodHouse: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
     private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
@@ -425,16 +423,18 @@ class GameView(context: Context) : View(context) {
         initWalkers()
         state = PLAYING
         if (startAtVillage) {
-            // Raccourci de test : on demarre directement a la surface
+            // Raccourci de test : on demarre directement a la surface, joystick fourni
             world.teleportActive = true
             world.islandVisited = true
+            joyOwned = true
+            joyOn = true
             val px = world.cx(world.islandPortal)
             val py = world.cy(world.islandPortal)
             hx = px; hy = py + 1
             fx = hx + 0.5f; fy = hy + 0.5f
             camX = fx; camY = fy
             teleCd = 1.5f
-            showMsg("Depart au village (mode test). Le portail ramene au donjon.")
+            showMsg("Mode test : joystick actif, le portail ramene au donjon.")
         } else {
             showMsg("Traversez le champ de mines jusqu'au passage de droite !")
         }
@@ -1869,71 +1869,83 @@ class GameView(context: Context) : View(context) {
 
     /** Une case de l'ile : mer animee, plage, herbe, chemin, maison. */
     private fun drawIslandCell(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
-        // Interieur de maison : parquet + meubles
+        // Interieur d'un batiment (parquet)
         if (ter == World.TER_WOOD) {
             val hn = world.interiorOf(gx, gy)
             val fl = world.houseFloor[hn] ?: 1
             tmpRect.set(rect.left - tile * 0.05f, rect.top - tile * 0.05f, rect.right + tile * 0.05f, rect.bottom + tile * 0.05f)
             drawTex(canvas, hfloor(fl), tmpRect)
-            paint.color = Color.argb(30, 20, 10, 0)
-            canvas.drawRect(tmpRect, paint)
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
             if (world.houseExit.containsKey(i)) drawHouseDoor(canvas)
             return
         }
-        val bmp = when (ter) {
-            World.TER_GRASS -> sGrass
-            World.TER_EARTH -> sEarth
-            World.TER_DIRT -> sDirt
-            World.TER_SAND -> sSand
-            World.TER_SHORE -> sShore
-            World.TER_SHALLOW -> sShallow
-            else -> sWater
-        }
-        tmpRect.set(rect.left - tile * 0.06f, rect.top - tile * 0.06f, rect.right + tile * 0.06f, rect.bottom + tile * 0.06f)
-        drawTex(canvas, bmp, tmpRect)
 
-        // Scintillement de la mer
-        if (ter == World.TER_WATER || ter == World.TER_SHALLOW || ter == World.TER_SHORE) {
-            val wv = sin(time * 1.6f + gx * 0.7f + gy * 0.5f)
-            paint.color = Color.argb((16 + 16 * wv).toInt().coerceIn(0, 40), 255, 255, 255)
-            canvas.drawRect(tmpRect, paint)
-            if (ter == World.TER_WATER) {
-                paint.color = Color.argb(30, 20, 80, 130)
+        // Les tuiles se chevauchent tres legerement : aucune couture visible
+        tmpRect.set(
+            rect.left - tile * 0.055f, rect.top - tile * 0.055f,
+            rect.right + tile * 0.055f, rect.bottom + tile * 0.055f
+        )
+
+        when (ter) {
+            World.TER_WATER -> {
+                drawTex(canvas, sWater, tmpRect)
+                // Houle : un leger voile clair qui se deplace
+                val wv = 0.5f + 0.5f * sin(time * 1.1f + gx * 0.55f + gy * 0.42f)
+                paint.color = Color.argb((10 + 20 * wv).toInt(), 220, 245, 255)
+                canvas.drawRect(tmpRect, paint)
+                // Assombrissement du large
+                paint.color = Color.argb(40, 6, 40, 80)
                 canvas.drawRect(tmpRect, paint)
             }
+            World.TER_SHALLOW -> {
+                // Haut-fond : l'eau, eclaircie, avec le sable qui transparait
+                drawTex(canvas, sWater, tmpRect)
+                paint.color = Color.argb(90, 235, 215, 150)
+                canvas.drawRect(tmpRect, paint)
+                val wv = 0.5f + 0.5f * sin(time * 1.6f + gx * 0.7f + gy * 0.5f)
+                paint.color = Color.argb((18 + 30 * wv).toInt(), 255, 255, 255)
+                canvas.drawRect(tmpRect, paint)
+            }
+            World.TER_SHORE -> {
+                // Rivage : sable mouille + un ourlet d'ecume qui va et vient
+                drawTex(canvas, sSand, tmpRect)
+                paint.color = Color.argb(70, 40, 130, 175)
+                canvas.drawRect(tmpRect, paint)
+                val foam = 0.5f + 0.5f * sin(time * 1.3f + gx * 0.5f + gy * 0.9f)
+                paint.color = Color.argb((30 + 55 * foam).toInt(), 255, 255, 255)
+                canvas.drawRect(tmpRect, paint)
+            }
+            World.TER_SAND -> drawTex(canvas, sSand, tmpRect)
+            World.TER_GRASS -> drawTex(canvas, sGrass, tmpRect)
+            World.TER_DIRT -> drawTex(canvas, sEarth, tmpRect)
+            World.TER_EARTH -> drawTex(canvas, sDirt, tmpRect)
         }
-        // La maison
-        val hn = world.houses[i]
-        if (hn != null) {
-            drawSprite(canvas, sHouses[(hn - 1).coerceIn(0, 9)], rect.centerX(), rect.centerY() - tile * 0.28f, tile * 2.3f)
-        }
+
         // Decor : arbres, plantes, rochers, barques
         val dec = world.decor[i]
         if (dec != null) {
             val (dt, dn) = dec
             val size = when (dt) {
-                0 -> tile * 2.0f        // arbre
-                1 -> tile * 0.9f        // plante
-                2 -> tile * 1.15f       // rocher
-                else -> tile * 1.6f     // barque
+                0 -> tile * 1.9f
+                1 -> tile * 0.85f
+                2 -> tile * 1.1f
+                else -> tile * 1.5f
             }
-            val dy = when (dt) {
-                0 -> -tile * 0.45f
-                3 -> -tile * 0.1f
-                else -> -tile * 0.08f
+            val dyy = when (dt) {
+                0 -> -tile * 0.42f
+                3 -> -tile * 0.08f
+                else -> -tile * 0.06f
             }
-            paint.color = Color.argb(55, 0, 0, 0)
+            paint.color = Color.argb(60, 0, 0, 0)
             canvas.drawOval(
-                rect.centerX() - tile * 0.24f, rect.centerY() + tile * 0.14f,
-                rect.centerX() + tile * 0.24f, rect.centerY() + tile * 0.3f, paint
+                rect.centerX() - tile * 0.22f, rect.centerY() + tile * 0.16f,
+                rect.centerX() + tile * 0.22f, rect.centerY() + tile * 0.3f, paint
             )
-            drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dy, size)
+            drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
         }
-        // Le paillasson devant une maison
+
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
-        // Le portail d'arrivee
         if (world.isIslandPortal(gx, gy)) drawTeleport(canvas)
     }
 
@@ -2488,9 +2500,8 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
-            world.isInterior(hx, hy) -> "Vous etes chez un villageois. La porte du bas pour sortir."
-            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village ! Touchez les villageois pour leur parler."
-            world.isIsland(hx, hy) -> "L'ile ! Explorez la plage et rejoignez le village au sud."
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "La place du village. Touchez les habitants pour leur parler."
+            world.isIsland(hx, hy) -> "L'ile ! Explorez la plage, les bois et la place au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
             world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"
             world.lightsSolved -> "Objectif : entrer dans la salle du BOSS."
@@ -2723,9 +2734,11 @@ class GameView(context: Context) : View(context) {
             "• Victoire -> la porte scellee s'ouvre et un PORTAIL",
             "  apparait au centre de la salle des couleurs.",
             "",
-            "9) L'ILE : le portail vous emmene a la SURFACE, sur une",
-            "   grande ile (mer, plage, village). Le portail de l'ile",
-            "   vous ramene au donjon. (Village : contenu a venir.)",
+            "9) L'ILE : le portail vous emmene a la SURFACE.",
+            "• Mer, plages, bois, rochers et barques echouees.",
+            "• Une place ou vivent les habitants : touchez-les !",
+            "• Le portail de l'ile vous ramene au donjon.",
+            "• (Les batiments seront ajoutes un par un.)",
             "",
             "Touchez l'ecran pour fermer."
         )

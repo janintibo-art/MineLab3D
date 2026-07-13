@@ -168,6 +168,7 @@ class GameView(context: Context) : View(context) {
     private class Mob(var x: Float, var y: Float, var hp: Int, val sprite: Int) {
         var hitT = 0f
         var stepT = 0f
+        var spawnT = 0f
     }
 
     private val mobs = ArrayList<Mob>()
@@ -434,7 +435,8 @@ class GameView(context: Context) : View(context) {
             for (part in ms.split(";")) {
                 val f = part.split(",")
                 if (f.size == 4) {
-                    mobs.add(Mob(f[0].toFloat(), f[1].toFloat(), f[2].toInt(), f[3].toInt()))
+                    val sp = f[3].toInt().coerceIn(0, sMonsters.size - 1)
+                    mobs.add(Mob(f[0].toFloat(), f[1].toFloat(), f[2].toInt(), sp))
                 }
             }
         }
@@ -641,8 +643,11 @@ class GameView(context: Context) : View(context) {
         val r = Random(world.seed + 77)
         for (k in 0..1) {
             val c = world.mobSpawn[k]
-            mobs.add(Mob(world.cx(c) + 0.5f, world.cy(c) + 0.5f, 100, r.nextInt(8)))
+            val m = Mob(world.cx(c) + 0.5f, world.cy(c) + 0.5f, 100, r.nextInt(sMonsters.size))
+            m.spawnT = 1f
+            mobs.add(m)
         }
+        audio.play("hit")
     }
 
     private fun updateMobs(dt: Float) {
@@ -650,8 +655,10 @@ class GameView(context: Context) : View(context) {
         var alive = 0
         for (m in mobs) {
             m.hitT = (m.hitT - dt).coerceAtLeast(0f)
+            m.spawnT = (m.spawnT - dt * 1.2f).coerceAtLeast(0f)
             if (m.hp <= 0) continue
             alive++
+            if (m.spawnT > 0f) continue
             val dx = fx - m.x
             val dy = fy - m.y
             val d = hypot(dx, dy)
@@ -1169,7 +1176,7 @@ class GameView(context: Context) : View(context) {
             canvas.drawRect(0f, 0f, w, h, paint)
         }
         if (damageT > 0f) {
-            paint.color = Color.argb((damageT * 320).toInt().coerceAtMost(140), 220, 30, 30)
+            paint.color = Color.argb((damageT * 200).toInt().coerceAtMost(90), 220, 30, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
         }
         if (showMap) drawMap(canvas, w, h)
@@ -1439,6 +1446,7 @@ class GameView(context: Context) : View(context) {
                 if (i in world.blocks) drawCrate(canvas, i in world.plates || i in world.targets || i in world.targets2)
             }
         }
+        drawMobs(canvas, w)
         drawHero(canvas, w)
     }
 
@@ -1596,7 +1604,12 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb(95, 0, 0, 0)
             canvas.drawOval(cxx - tile * 0.28f, cyy + tile * 0.2f, cxx + tile * 0.28f, cyy + tile * 0.34f, paint)
             val alpha = if (m.hitT > 0f) 160 else 255
-            drawSprite(canvas, sMonsters[m.sprite], cxx, cyy - tile * 0.14f - bounce, tile * 1.15f, alpha)
+            val grow = if (m.spawnT > 0f) 0.4f + 0.6f * (1f - m.spawnT) else 1f
+            if (m.spawnT > 0f) {
+                paint.color = Color.argb((160 * m.spawnT).toInt(), 190, 70, 220)
+                canvas.drawCircle(cxx, cyy - tile * 0.1f, tile * (0.3f + m.spawnT * 0.6f), paint)
+            }
+            drawSprite(canvas, sMonsters[m.sprite], cxx, cyy - tile * 0.14f - bounce, tile * 1.15f * grow, alpha)
             if (m.hitT > 0f) {
                 paint.color = Color.argb((150 * (m.hitT / 0.28f)).toInt(), 255, 70, 60)
                 canvas.drawCircle(cxx, cyy - tile * 0.15f, tile * 0.5f, paint)

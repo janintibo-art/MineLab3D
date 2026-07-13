@@ -35,6 +35,7 @@ class GameView(context: Context) : View(context) {
     private var playerName = "Heros"
     private var difficulty = 1
     private var godMode = false
+    private var startAtVillage = false
 
     private val prefs = context.getSharedPreferences("minelab", Context.MODE_PRIVATE)
     private val audio = Audio(context)
@@ -180,6 +181,11 @@ class GameView(context: Context) : View(context) {
         )
     }
     private val sProps: Array<Bitmap?> = arrayOfNulls(91)
+    private val sTrees: Array<Bitmap?> = arrayOfNulls(30)
+    private val sPlants: Array<Bitmap?> = arrayOfNulls(12)
+    private val sRocks: Array<Bitmap?> = arrayOfNulls(10)
+    private val sBoats: Array<Bitmap?> = arrayOfNulls(6)
+    private val sHFloors: Array<Bitmap?> = arrayOfNulls(13)
 
     private fun bmp(name: String): Bitmap {
         val id = resources.getIdentifier(name, "drawable", context.packageName)
@@ -189,6 +195,18 @@ class GameView(context: Context) : View(context) {
     private fun prop(n: Int): Bitmap {
         if (sProps[n] == null) sProps[n] = bmp("prop$n")
         return sProps[n]!!
+    }
+
+    private fun decorBmp(type: Int, n: Int): Bitmap = when (type) {
+        0 -> { if (sTrees[n] == null) sTrees[n] = bmp("tree$n"); sTrees[n]!! }
+        1 -> { if (sPlants[n] == null) sPlants[n] = bmp("plant$n"); sPlants[n]!! }
+        2 -> { if (sRocks[n] == null) sRocks[n] = bmp("rock$n"); sRocks[n]!! }
+        else -> { if (sBoats[n] == null) sBoats[n] = bmp("boat$n"); sBoats[n]!! }
+    }
+
+    private fun hfloor(n: Int): Bitmap {
+        if (sHFloors[n] == null) sHFloors[n] = bmp("hfloor$n")
+        return sHFloors[n]!!
     }
 
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -276,6 +294,7 @@ class GameView(context: Context) : View(context) {
     private val tName = RectF()
     private val tDiff = arrayOf(RectF(), RectF(), RectF())
     private val tGod = RectF()
+    private val tVillage = RectF()
     private val tNew = RectF()
     private val tCont = RectF()
     private val tHelp = RectF()
@@ -312,6 +331,7 @@ class GameView(context: Context) : View(context) {
         playerName = prefs.getString("name", "Heros") ?: "Heros"
         difficulty = prefs.getInt("diff", 1)
         godMode = prefs.getBoolean("god", false)
+        startAtVillage = prefs.getBoolean("village", false)
         loadAudioPrefs()
     }
 
@@ -404,7 +424,20 @@ class GameView(context: Context) : View(context) {
         heroDir = 0
         initWalkers()
         state = PLAYING
-        showMsg("Traversez le champ de mines jusqu'au passage de droite !")
+        if (startAtVillage) {
+            // Raccourci de test : on demarre directement a la surface
+            world.teleportActive = true
+            world.islandVisited = true
+            val px = world.cx(world.islandPortal)
+            val py = world.cy(world.islandPortal)
+            hx = px; hy = py + 1
+            fx = hx + 0.5f; fy = hy + 0.5f
+            camX = fx; camY = fy
+            teleCd = 1.5f
+            showMsg("Depart au village (mode test). Le portail ramene au donjon.")
+        } else {
+            showMsg("Traversez le champ de mines jusqu'au passage de droite !")
+        }
         saveGame()
     }
 
@@ -602,10 +635,11 @@ class GameView(context: Context) : View(context) {
         for (k in 0..2) {
             tDiff[k].set(cx0 + k * (dw + gap), hf * 0.42f, cx0 + k * (dw + gap) + dw, hf * 0.42f + rh)
         }
-        tGod.set(cx0, hf * 0.52f, cx0 + cw, hf * 0.52f + rh)
-        tNew.set(cx0, hf * 0.63f, cx0 + cw, hf * 0.63f + rh * 1.15f)
-        tCont.set(cx0, hf * 0.72f, cx0 + cw, hf * 0.72f + rh * 1.15f)
-        tHelp.set(cx0, hf * 0.81f, cx0 + cw, hf * 0.81f + rh * 1.15f)
+        tGod.set(cx0, hf * 0.515f, cx0 + cw, hf * 0.515f + rh)
+        tVillage.set(cx0, hf * 0.585f, cx0 + cw, hf * 0.585f + rh)
+        tNew.set(cx0, hf * 0.665f, cx0 + cw, hf * 0.665f + rh * 1.1f)
+        tCont.set(cx0, hf * 0.745f, cx0 + cw, hf * 0.745f + rh * 1.1f)
+        tHelp.set(cx0, hf * 0.825f, cx0 + cw, hf * 0.825f + rh * 1.1f)
         val sq = hf * 0.05f
         tSet.set(wf - sq * 1.5f, hf * 0.035f, wf - sq * 0.4f, hf * 0.035f + sq * 1.1f)
 
@@ -1654,6 +1688,11 @@ class GameView(context: Context) : View(context) {
         drawPanelBtn(canvas, tName, playerName, false)
         for (k in 0..2) drawPanelBtn(canvas, tDiff[k], diffName(k), difficulty == k)
         drawPanelBtn(canvas, tGod, if (godMode) "VIE ILLIMITEE : ON" else "VIE ILLIMITEE : OFF", godMode)
+        drawPanelBtn(
+            canvas, tVillage,
+            if (startAtVillage) "DEPART : LE VILLAGE (test)" else "DEPART : LE DONJON",
+            startAtVillage
+        )
         drawPanelBtn(canvas, tNew, "NOUVELLE PARTIE", false)
         drawPanelBtn(canvas, tCont, if (hasSave()) "CONTINUER" else "AUCUNE SAUVEGARDE", false, hasSave())
         drawPanelBtn(canvas, tHelp, "COMMENT JOUER ?", false)
@@ -1832,9 +1871,11 @@ class GameView(context: Context) : View(context) {
     private fun drawIslandCell(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
         // Interieur de maison : parquet + meubles
         if (ter == World.TER_WOOD) {
+            val hn = world.interiorOf(gx, gy)
+            val fl = world.houseFloor[hn] ?: 1
             tmpRect.set(rect.left - tile * 0.05f, rect.top - tile * 0.05f, rect.right + tile * 0.05f, rect.bottom + tile * 0.05f)
-            drawTex(canvas, sFloorWoodHouse, tmpRect)
-            paint.color = Color.argb(35, 20, 10, 0)
+            drawTex(canvas, hfloor(fl), tmpRect)
+            paint.color = Color.argb(30, 20, 10, 0)
             canvas.drawRect(tmpRect, paint)
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
@@ -1867,6 +1908,28 @@ class GameView(context: Context) : View(context) {
         val hn = world.houses[i]
         if (hn != null) {
             drawSprite(canvas, sHouses[(hn - 1).coerceIn(0, 9)], rect.centerX(), rect.centerY() - tile * 0.28f, tile * 2.3f)
+        }
+        // Decor : arbres, plantes, rochers, barques
+        val dec = world.decor[i]
+        if (dec != null) {
+            val (dt, dn) = dec
+            val size = when (dt) {
+                0 -> tile * 2.0f        // arbre
+                1 -> tile * 0.9f        // plante
+                2 -> tile * 1.15f       // rocher
+                else -> tile * 1.6f     // barque
+            }
+            val dy = when (dt) {
+                0 -> -tile * 0.45f
+                3 -> -tile * 0.1f
+                else -> -tile * 0.08f
+            }
+            paint.color = Color.argb(55, 0, 0, 0)
+            canvas.drawOval(
+                rect.centerX() - tile * 0.24f, rect.centerY() + tile * 0.14f,
+                rect.centerX() + tile * 0.24f, rect.centerY() + tile * 0.3f, paint
+            )
+            drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dy, size)
         }
         // Le paillasson devant une maison
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
@@ -3161,6 +3224,10 @@ class GameView(context: Context) : View(context) {
                 tGod.contains(e.x, e.y) -> {
                     godMode = !godMode
                     prefs.edit().putBoolean("god", godMode).apply()
+                }
+                tVillage.contains(e.x, e.y) -> {
+                    startAtVillage = !startAtVillage
+                    prefs.edit().putBoolean("village", startAtVillage).apply()
                 }
                 tNew.contains(e.x, e.y) -> newGame()
                 tCont.contains(e.x, e.y) -> if (hasSave()) loadGame()

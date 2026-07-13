@@ -166,6 +166,31 @@ class GameView(context: Context) : View(context) {
     private val sShore: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shore)
     private val sShallow: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_shallow)
     private val sWater: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_water)
+    private val sFloorWoodHouse: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
+    private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
+        val id = i + 1
+        arrayOf(
+            bmp("npc${id}d"), bmp("npc${id}u"), bmp("npc${id}l"), bmp("npc${id}r")
+        )
+    }
+    private val sPet: Array<Array<Bitmap>> = Array(10) { i ->
+        val id = i + 1
+        arrayOf(
+            bmp("pet${id}d"), bmp("pet${id}u"), bmp("pet${id}l"), bmp("pet${id}r")
+        )
+    }
+    private val sProps: Array<Bitmap?> = arrayOfNulls(91)
+
+    private fun bmp(name: String): Bitmap {
+        val id = resources.getIdentifier(name, "drawable", context.packageName)
+        return BitmapFactory.decodeResource(resources, id)
+    }
+
+    private fun prop(n: Int): Bitmap {
+        if (sProps[n] == null) sProps[n] = bmp("prop$n")
+        return sProps[n]!!
+    }
+
     private val sHouses: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house1),
         BitmapFactory.decodeResource(resources, R.drawable.house2),
@@ -203,6 +228,34 @@ class GameView(context: Context) : View(context) {
     }
 
     private val mobs = ArrayList<Mob>()
+
+    /** Un villageois ou un animal qui deambule. */
+    private class Walker(var x: Float, var y: Float, val kind: Int, val id: Int) {
+        var dir = 0
+        var tx = x
+        var ty = y
+        var wait = 0f
+        var talk = 0f
+    }
+
+    private val walkers = ArrayList<Walker>()
+    private var dialogue = ""
+    private var dialogueT = 0f
+    private var dialogueX = 0f
+    private var dialogueY = 0f
+
+    private val NPC_LINES = arrayOf(
+        "Bienvenue sur l'ile, aventurier !",
+        "On raconte qu'un donjon dort sous nos pieds...",
+        "Tu viens du portail ? Personne n'en revient, d'habitude.",
+        "Les mines ? Mon grand-pere en a desamorce des centaines.",
+        "Le forgeron cherche du minerai. Va le voir !",
+        "Belle epee. Tu l'as trouvee dans le coffre-fort ?",
+        "Attention aux monstres la-dessous.",
+        "Ma maison est ouverte, entre donc !",
+        "La mer est calme aujourd'hui.",
+        "Un jour, j'irai voir ce fameux boss. Un jour..."
+    )
     private var attackCd = 0f
     private var attackAnim = 0f
 
@@ -289,6 +342,7 @@ class GameView(context: Context) : View(context) {
     /** La zone musicale courante. */
     private fun currentZone(): Int {
         if (state == TITLE) return 0
+        if (world.isInterior(hx, hy)) return 9
         if (world.isIsland(hx, hy)) return if (world.inVillage(hx, hy)) 9 else 8
         if (mobs.any { it.hp > 0 }) return 7
         return when {
@@ -348,6 +402,7 @@ class GameView(context: Context) : View(context) {
         showHelp = false; showMenu = false; showInv = false
         boomFlash = 0f; keyAnim = 0f
         heroDir = 0
+        initWalkers()
         state = PLAYING
         showMsg("Traversez le champ de mines jusqu'au passage de droite !")
         saveGame()
@@ -506,6 +561,7 @@ class GameView(context: Context) : View(context) {
         simonState = 0; simonInput = 0
         gameOver = false; victory = false; flagMode = false
         showHelp = false; showMenu = false; showInv = false
+        initWalkers()
         state = PLAYING
         showMsg("Partie chargee. Bon retour, $playerName !")
         return true
@@ -578,6 +634,7 @@ class GameView(context: Context) : View(context) {
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
         damageT = (damageT - dt).coerceAtLeast(0f)
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
+        dialogueT = (dialogueT - dt).coerceAtLeast(0f)
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         attackCd = (attackCd - dt).coerceAtLeast(0f)
         teleCd = (teleCd - dt).coerceAtLeast(0f)
@@ -614,6 +671,7 @@ class GameView(context: Context) : View(context) {
         ) return
 
         updateMobs(dt)
+        updateWalkers(dt)
 
         if (pathStep < path.size) {
             walkPhase += dt * 12f
@@ -854,6 +912,18 @@ class GameView(context: Context) : View(context) {
             spawnWave(1)
             saveGame()
         }
+        // Paillasson : on entre dans la maison
+        val mat = world.houseMats[i]
+        if (mat != null && world.isIsland(hx, hy) && teleCd <= 0f) {
+            enterHouse(mat)
+            return
+        }
+        // Porte de sortie d'une maison
+        val ex = world.houseExit[i]
+        if (ex != null && teleCd <= 0f) {
+            leaveHouse(ex)
+            return
+        }
         // Le portail du donjon -> l'ILE
         if (world.isTeleport(hx, hy) && teleCd <= 0f) {
             teleportTo(world.cx(world.islandPortal), world.cy(world.islandPortal))
@@ -923,6 +993,85 @@ class GameView(context: Context) : View(context) {
     }
 
     private var teleCd = 0f
+
+    private fun initWalkers() {
+        walkers.clear()
+        for ((cell, id) in world.npcSpawns) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 0, id))
+        }
+        for ((cell, id) in world.petSpawns) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 1, id))
+        }
+    }
+
+    private fun updateWalkers(dt: Float) {
+        if (walkers.isEmpty()) return
+        // On n'anime que ce qui est proche du heros
+        for (w in walkers) {
+            w.talk = (w.talk - dt).coerceAtLeast(0f)
+            if (abs(w.x - fx) > 16f || abs(w.y - fy) > 16f) continue
+            if (w.talk > 0f) continue
+            val dx = w.tx - w.x
+            val dy = w.ty - w.y
+            val d = hypot(dx, dy)
+            if (d < 0.06f) {
+                w.wait -= dt
+                if (w.wait <= 0f) {
+                    // Nouvelle destination : une case voisine praticable
+                    val cx0 = w.x.toInt()
+                    val cy0 = w.y.toInt()
+                    val dirs = listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))
+                    val opts = dirs.filter { (ddx, ddy) ->
+                        val nx = cx0 + ddx
+                        val ny = cy0 + ddy
+                        world.isFloor(nx, ny) && !world.houses.containsKey(world.idx(nx, ny)) &&
+                                !world.props.containsKey(world.idx(nx, ny)) && world.isIsland(nx, ny)
+                    }
+                    if (opts.isNotEmpty()) {
+                        val (ddx, ddy) = opts[(time * 13f + w.id * 7f).toInt() % opts.size]
+                        w.tx = cx0 + ddx + 0.5f
+                        w.ty = cy0 + ddy + 0.5f
+                        w.dir = if (ddx != 0) (if (ddx > 0) 3 else 2) else (if (ddy > 0) 0 else 1)
+                    }
+                    w.wait = 0.7f + (w.id % 5) * 0.35f
+                }
+            } else {
+                val sp = (if (w.kind == 0) 1.1f else 1.5f) * dt
+                w.x += sign(dx) * min(abs(dx), sp)
+                w.y += sign(dy) * min(abs(dy), sp)
+            }
+        }
+    }
+
+    private fun talkTo(w: Walker) {
+        w.talk = 3.2f
+        dialogueT = 3.2f
+        dialogueX = w.x
+        dialogueY = w.y
+        dialogue = if (w.kind == 0) NPC_LINES[(w.id - 1) % NPC_LINES.size]
+        else listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !")[(w.id - 1) % 5]
+        // Le villageois se tourne vers le heros
+        val dx = fx - w.x
+        val dy = fy - w.y
+        w.dir = if (abs(dx) >= abs(dy)) (if (dx > 0) 3 else 2) else (if (dy > 0) 0 else 1)
+        audio.play("pickup")
+    }
+
+    /** Entrer dans une maison / en ressortir. */
+    private fun enterHouse(n: Int) {
+        val entry = world.houseEntry[n] ?: return
+        teleportTo(world.cx(entry), world.cy(entry) - 1)
+        audio.play("door")
+        showMsg("Vous entrez dans la maison $n.")
+    }
+
+    private fun leaveHouse(n: Int) {
+        var mat = -1
+        for ((cell, hn) in world.houseMats) if (hn == n && world.isIsland(world.cx(cell), world.cy(cell))) mat = cell
+        if (mat < 0) return
+        teleportTo(world.cx(mat), world.cy(mat))
+        audio.play("door")
+    }
 
     private fun teleportTo(tx: Int, ty: Int) {
         hx = tx; hy = ty
@@ -1227,6 +1376,28 @@ class GameView(context: Context) : View(context) {
         if (gameOver || victory) return
         val i = world.idx(gx, gy)
 
+        // Un villageois ou un animal sur cette case ?
+        for (w in walkers) {
+            if (w.x.toInt() == gx && w.y.toInt() == gy) {
+                if (hypot(w.x - fx, w.y - fy) <= 2.2f) { talkTo(w); return }
+                // sinon on s'en approche
+                val p2 = world.findPath(hx, hy, gx, gy)
+                if (p2 != null) { clearPendings(); path = p2; pathStep = 0; return }
+            }
+        }
+        // Une maison : on va sonner a la porte
+        val hn = world.houses[i]
+        if (hn != null) {
+            var matCell = -1
+            for ((c, n) in world.houseMats) if (n == hn && world.isIsland(world.cx(c), world.cy(c))) matCell = c
+            if (matCell >= 0) {
+                val p2 = world.findPath(hx, hy, world.cx(matCell), world.cy(matCell))
+                if (p2 != null) { clearPendings(); path = p2; pathStep = 0; return }
+            }
+            showMsg("Une jolie maison. Passez par la porte, en bas.")
+            return
+        }
+
         // Enigme des couleurs : si on retouche la dalle sur laquelle on se trouve
         // deja, la couleur est validee une nouvelle fois (utile si elle se repete).
         if (simonState == 2) {
@@ -1352,6 +1523,7 @@ class GameView(context: Context) : View(context) {
         drawBoard(canvas, w)
         canvas.restore()
 
+        drawDialogue(canvas, w, h)
         drawHud(canvas, w, h)
         if (joyOn && joyOwned) drawJoystick(canvas)
 
@@ -1638,6 +1810,7 @@ class GameView(context: Context) : View(context) {
             }
         }
         drawMobs(canvas, w)
+        drawWalkers(canvas, w)
         drawHero(canvas, w)
     }
 
@@ -1657,6 +1830,17 @@ class GameView(context: Context) : View(context) {
 
     /** Une case de l'ile : mer animee, plage, herbe, chemin, maison. */
     private fun drawIslandCell(canvas: Canvas, gx: Int, gy: Int, i: Int, ter: Int) {
+        // Interieur de maison : parquet + meubles
+        if (ter == World.TER_WOOD) {
+            tmpRect.set(rect.left - tile * 0.05f, rect.top - tile * 0.05f, rect.right + tile * 0.05f, rect.bottom + tile * 0.05f)
+            drawTex(canvas, sFloorWoodHouse, tmpRect)
+            paint.color = Color.argb(35, 20, 10, 0)
+            canvas.drawRect(tmpRect, paint)
+            val pn = world.props[i]
+            if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
+            if (world.houseExit.containsKey(i)) drawHouseDoor(canvas)
+            return
+        }
         val bmp = when (ter) {
             World.TER_GRASS -> sGrass
             World.TER_EARTH -> sEarth
@@ -1684,8 +1868,74 @@ class GameView(context: Context) : View(context) {
         if (hn != null) {
             drawSprite(canvas, sHouses[(hn - 1).coerceIn(0, 9)], rect.centerX(), rect.centerY() - tile * 0.28f, tile * 2.3f)
         }
+        // Le paillasson devant une maison
+        if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
         // Le portail d'arrivee
         if (world.isIslandPortal(gx, gy)) drawTeleport(canvas)
+    }
+
+    /** Une porte de maison (entree / sortie). */
+    private fun drawHouseDoor(canvas: Canvas) {
+        tmpRect.set(
+            rect.left + tile * 0.16f, rect.top + tile * 0.06f,
+            rect.right - tile * 0.16f, rect.bottom - tile * 0.02f
+        )
+        paint.color = Color.rgb(96, 62, 34)
+        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.035f
+        paint.color = Color.rgb(150, 104, 52)
+        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(240, 200, 90)
+        canvas.drawCircle(tmpRect.right - tile * 0.08f, tmpRect.centerY(), tile * 0.045f, paint)
+        val pulse = 0.5f + 0.5f * sin(time * 3f)
+        paint.color = Color.argb((30 + 40 * pulse).toInt(), 255, 220, 130)
+        canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.4f, paint)
+    }
+
+    /** Villageois et animaux. */
+    private fun drawWalkers(canvas: Canvas, w: Float) {
+        for (wk in walkers) {
+            if (abs(wk.x - camX) > 12f || abs(wk.y - camY) > 12f) continue
+            val cxx = sx(wk.x, w)
+            val cyy = sy(wk.y)
+            val moving = hypot(wk.tx - wk.x, wk.ty - wk.y) > 0.06f
+            val bob = if (moving) abs(sin(time * 8f + wk.id)) * tile * 0.05f else 0f
+            paint.color = Color.argb(80, 0, 0, 0)
+            canvas.drawOval(cxx - tile * 0.22f, cyy + tile * 0.18f, cxx + tile * 0.22f, cyy + tile * 0.3f, paint)
+            val set = if (wk.kind == 0) sNpc[(wk.id - 1) % 10] else sPet[(wk.id - 1) % 10]
+            val size = if (wk.kind == 0) tile * 1.15f else tile * 0.95f
+            drawSprite(canvas, set[wk.dir.coerceIn(0, 3)], cxx, cyy - tile * 0.12f - bob, size)
+        }
+    }
+
+    /** La bulle de dialogue. */
+    private fun drawDialogue(canvas: Canvas, w: Float, h: Float) {
+        if (dialogueT <= 0f) return
+        val cxx = sx(dialogueX, w)
+        val cyy = sy(dialogueY) - tile * 0.75f
+        paint.textSize = h * 0.019f
+        val tw = paint.measureText(dialogue) + h * 0.03f
+        val th = h * 0.05f
+        tmpRect.set(cxx - tw / 2f, cyy - th, cxx + tw / 2f, cyy)
+        paint.color = Color.argb(240, 250, 246, 235)
+        canvas.drawRoundRect(tmpRect, th * 0.3f, th * 0.3f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.003f
+        paint.color = Color.rgb(120, 90, 50)
+        canvas.drawRoundRect(tmpRect, th * 0.3f, th * 0.3f, paint)
+        paint.style = Paint.Style.FILL
+        val p = Path()
+        p.moveTo(cxx - th * 0.16f, cyy - h * 0.001f)
+        p.lineTo(cxx + th * 0.16f, cyy - h * 0.001f)
+        p.lineTo(cxx, cyy + th * 0.25f)
+        p.close()
+        paint.color = Color.argb(240, 250, 246, 235)
+        canvas.drawPath(p, paint)
+        paint.color = Color.rgb(40, 34, 28)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText(dialogue, cxx, cyy - th * 0.34f, paint)
     }
 
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
@@ -2175,7 +2425,8 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
-            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village de l'ile. (Contenu a venir !)"
+            world.isInterior(hx, hy) -> "Vous etes chez un villageois. La porte du bas pour sortir."
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village ! Touchez les villageois pour leur parler."
             world.isIsland(hx, hy) -> "L'ile ! Explorez la plage et rejoignez le village au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
             world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"
@@ -2439,10 +2690,11 @@ class GameView(context: Context) : View(context) {
 
         val mw = w * 0.92f
         val mh = h * 0.62f
-        val cs = min(mw / world.wid, mh / world.hei)
+        val visH = world.hy0                    // on n'affiche pas les interieurs
+        val cs = min(mw / world.wid, mh / visH)
         val ox = (w - cs * world.wid) / 2f
         val oy = h * 0.13f
-        for (gy in 0 until world.hei) {
+        for (gy in 0 until visH) {
             for (gx in 0 until world.wid) {
                 val i = world.idx(gx, gy)
                 val g = world.grid[i]
@@ -2480,12 +2732,14 @@ class GameView(context: Context) : View(context) {
             }
         }
         // Le heros
-        paint.color = Color.rgb(255, 220, 60)
-        canvas.drawCircle(ox + (hx + 0.5f) * cs, oy + (hy + 0.5f) * cs, cs * 1.3f, paint)
+        if (hy < visH) {
+            paint.color = Color.rgb(255, 220, 60)
+            canvas.drawCircle(ox + (hx + 0.5f) * cs, oy + (hy + 0.5f) * cs, cs * 1.3f, paint)
+        }
 
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = h * 0.017f
-        var y = oy + cs * world.hei + h * 0.045f
+        var y = oy + cs * visH + h * 0.045f
         val leg = listOf(
             Pair("Vous", Color.rgb(255, 220, 60)),
             Pair("Salle exploree", Color.rgb(180, 186, 200)),

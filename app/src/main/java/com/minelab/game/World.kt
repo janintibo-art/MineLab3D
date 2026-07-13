@@ -42,14 +42,16 @@ class World(
         const val TER_SHORE = 5
         const val TER_SHALLOW = 6
         const val TER_WATER = 7
+        const val TER_WOOD = 8      // parquet des maisons
     }
 
     private val rnd = Random(seed)
 
     val wid = maxOf(hallW + 24, 40)
     val uy0 = maxOf(hallH, 11) + 3
-    val hei = uy0 + 22 + 36
     val iy0 = uy0 + 24          // premiere ligne de l'ile
+    val hy0 = iy0 + 36          // premiere ligne des interieurs de maison
+    val hei = hy0 + 40
 
     val grid = IntArray(wid * hei) { WALL }
     /** Terrain de surface (0 = donjon, sinon herbe/sable/mer...). */
@@ -57,6 +59,16 @@ class World(
 
     /** L'ile : maisons (case -> numero de sprite) et portail d'arrivee. */
     val houses = HashMap<Int, Int>()
+    /** Le paillasson devant chaque maison : case -> numero de maison (1..10). */
+    val houseMats = HashMap<Int, Int>()
+    /** Interieurs : numero de maison -> case d'arrivee ; et porte de sortie -> maison. */
+    val houseEntry = HashMap<Int, Int>()
+    val houseExit = HashMap<Int, Int>()
+    /** Meubles poses : case -> numero de prop (1..90). */
+    val props = HashMap<Int, Int>()
+    /** Villageois et animaux : case de depart -> numero de sprite. */
+    val npcSpawns = ArrayList<Pair<Int, Int>>()
+    val petSpawns = ArrayList<Pair<Int, Int>>()
     var islandPortal = -1
     var islandVisited = false
     private val villageCx = wid / 2
@@ -411,12 +423,81 @@ class World(
             houses[i] = k
             grid[i] = WALL                 // on ne traverse pas une maison
             if (terrain[i] == TER_DIRT) terrain[i] = TER_EARTH
+            // Le paillasson : la case juste en dessous
+            val m = idx(x, y + 1)
+            if (inside(x, y + 1) && grid[m] == FLOOR) {
+                houseMats[m] = k
+                terrain[m] = TER_EARTH
+            }
+            buildInterior(k, m)
             k++
             if (k > 10) break
         }
+        // Villageois et animaux dans le village
+        val vSpots = listOf(
+            Pair(px - 4, villageCy), Pair(px + 4, villageCy), Pair(px, villageCy + 3),
+            Pair(px - 6, villageCy + 3), Pair(px + 6, villageCy + 3), Pair(px - 1, villageCy - 4),
+            Pair(px + 3, villageCy + 7), Pair(px - 3, villageCy - 5), Pair(px + 6, villageCy - 4),
+            Pair(px - 6, villageCy - 3)
+        )
+        for ((n, sp) in vSpots.withIndex()) {
+            val (x, y) = sp
+            if (inside(x, y) && grid[idx(x, y)] == FLOOR) npcSpawns.add(Pair(idx(x, y), n + 1))
+        }
+        val aSpots = listOf(
+            Pair(px - 7, villageCy + 1), Pair(px + 7, villageCy + 1), Pair(px + 1, villageCy + 8),
+            Pair(px - 2, villageCy + 8), Pair(px + 8, villageCy - 2), Pair(px - 8, villageCy - 2),
+            Pair(px + 2, villageCy - 6), Pair(px - 4, villageCy + 6), Pair(px + 5, villageCy + 5),
+            Pair(px - 5, villageCy - 6)
+        )
+        for ((n, sp) in aSpots.withIndex()) {
+            val (x, y) = sp
+            if (inside(x, y) && grid[idx(x, y)] == FLOOR) petSpawns.add(Pair(idx(x, y), n + 1))
+        }
     }
 
-    fun isIsland(x: Int, y: Int) = inside(x, y) && terrain[idx(x, y)] != TER_NONE
+    /**
+     * L'interieur d'une maison : une piece 9x7 en parquet, meublee avec les 9 objets
+     * de sa planche (maison 1 = salon, 2 = cuisine, 3 = chambre, etc.).
+     */
+    private fun buildInterior(n: Int, matCell: Int) {
+        val col = (n - 1) % 3
+        val row = (n - 1) / 3
+        val rx0 = 1 + col * 13
+        val ry0 = hy0 + 1 + row * 9
+        if (ry0 + 7 >= hei || rx0 + 9 >= wid) return
+
+        for (y in ry0 until ry0 + 7) for (x in rx0 until rx0 + 9) {
+            val i = idx(x, y)
+            grid[i] = FLOOR
+            terrain[i] = TER_WOOD
+            revealed.add(i)
+        }
+        // La porte de sortie, en bas au milieu
+        val exitCell = idx(rx0 + 4, ry0 + 6)
+        houseExit[exitCell] = n
+        houseEntry[n] = exitCell
+        if (matCell >= 0) houseMats[matCell] = n
+
+        // Les 9 meubles de la planche n, le long des murs
+        val spots = listOf(
+            Pair(rx0 + 1, ry0), Pair(rx0 + 3, ry0), Pair(rx0 + 5, ry0), Pair(rx0 + 7, ry0),
+            Pair(rx0, ry0 + 2), Pair(rx0 + 8, ry0 + 2),
+            Pair(rx0, ry0 + 4), Pair(rx0 + 8, ry0 + 4),
+            Pair(rx0 + 7, ry0 + 5)
+        )
+        for ((k, sp) in spots.withIndex()) {
+            val (x, y) = sp
+            val i = idx(x, y)
+            props[i] = (n - 1) * 9 + k + 1
+            grid[i] = WALL
+            terrain[i] = TER_WOOD
+        }
+    }
+
+    fun isIsland(x: Int, y: Int) =
+        inside(x, y) && terrain[idx(x, y)] != TER_NONE && terrain[idx(x, y)] != TER_WOOD
+    fun isInterior(x: Int, y: Int) = inside(x, y) && terrain[idx(x, y)] == TER_WOOD
     fun inVillage(x: Int, y: Int) =
         isIsland(x, y) && kotlin.math.abs(x - villageCx) <= 8 &&
                 kotlin.math.abs(y - villageCy) <= 8
@@ -609,6 +690,7 @@ class World(
         if (chest3Spawned && i == chest3) return false
         if (i == altar) return false
         if (isTorch(i)) return false
+        if (props.containsKey(i)) return false
         if (x == trapX && y == trapY && !trapOpen) return false
         return i in revealed
     }

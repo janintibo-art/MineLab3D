@@ -1106,6 +1106,34 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /** Dalle de pression encore recouverte : petite grille 3x3 a resoudre. */
+    private fun drawCoveredPlate(canvas: Canvas) {
+        tmpRect.set(rect)
+        tmpRect.inset(tile * 0.08f, tile * 0.08f)
+        paint.color = Color.rgb(46, 54, 70)
+        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.025f
+        paint.color = Color.rgb(96, 108, 132)
+        val x1 = tmpRect.left + tmpRect.width() / 3f
+        val x2 = tmpRect.left + tmpRect.width() * 2f / 3f
+        val y1 = tmpRect.top + tmpRect.height() / 3f
+        val y2 = tmpRect.top + tmpRect.height() * 2f / 3f
+        canvas.drawLine(x1, tmpRect.top, x1, tmpRect.bottom, paint)
+        canvas.drawLine(x2, tmpRect.top, x2, tmpRect.bottom, paint)
+        canvas.drawLine(tmpRect.left, y1, tmpRect.right, y1, paint)
+        canvas.drawLine(tmpRect.left, y2, tmpRect.right, y2, paint)
+        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
+        paint.style = Paint.Style.FILL
+        val pulse = 0.5f + 0.5f * sin(time * 3f)
+        paint.color = Color.argb((170 + 85 * pulse).toInt(), 255, 210, 90)
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = tile * 0.34f
+        paint.isFakeBoldText = true
+        canvas.drawText("?", rect.centerX(), rect.centerY() + tile * 0.12f, paint)
+        paint.isFakeBoldText = false
+    }
+
     private fun drawTarget(canvas: Canvas, i: Int) {
         val on = i in world.blocks
         paint.style = Paint.Style.STROKE

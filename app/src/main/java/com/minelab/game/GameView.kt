@@ -18,6 +18,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sign
 import kotlin.math.sin
+import kotlin.random.Random
 
 class GameView(context: Context) : View(context) {
 
@@ -47,13 +48,44 @@ class GameView(context: Context) : View(context) {
     private var pendingDisarm = -1
     private var pendingChest = false
     private var pendingDoor = false
+    private var pendingChest2 = false
+    private var pendingChest3 = false
+    private var pendingAltar = false
+    private var pendingDoor1 = false
+    private var pendingDoor2 = false
+    private var pendingMini = -1
 
     private var hp = 100
     private var disarmed = 0
     private var flagsLeft = 0
+    private var heartsGot = 0
     private var flagMode = false
     private var gameOver = false
     private var victory = false
+
+    // Joystick
+    private var joyOwned = false
+    private var joyOn = false
+    private var joyPointer = -1
+    private var joyDX = 0f
+    private var joyDY = 0f
+    private val joyCenter = floatArrayOf(0f, 0f)
+    private var joyRadius = 0f
+
+    // Mini-demineur 3x3 (dalle de pression en cours)
+    private var miniPlate = -1
+    private val miniLayout = HashSet<Int>()
+    private val miniRev = HashSet<Int>()
+    private val miniFlag = HashSet<Int>()
+    private val miniRects = Array(9) { RectF() }
+
+    // Enigme des couleurs (Simon)
+    private var simonState = 0        // 0 repos, 1 lecture, 2 saisie
+    private var simonPos = -1
+    private var simonTimer = 0f
+    private var simonInput = 0
+    private var simonFlash = -1
+    private var simonFlashT = 0f
 
     private var message = ""
     private var msgTimer = 0f
@@ -93,6 +125,7 @@ class GameView(context: Context) : View(context) {
     private val mHelp = RectF()
     private val mRestart = RectF()
     private val mQuit = RectF()
+    private val invJoyRect = RectF()
 
     private var downX = 0f
     private var downY = 0f
@@ -102,6 +135,13 @@ class GameView(context: Context) : View(context) {
     private var dragging = false
     private val rect = RectF()
     private val tmpRect = RectF()
+
+    private val simonColors = intArrayOf(
+        Color.rgb(225, 65, 60),    // rouge
+        Color.rgb(60, 130, 230),   // bleu
+        Color.rgb(60, 195, 105),   // vert
+        Color.rgb(245, 205, 70)    // jaune
+    )
 
     init {
         isFocusable = true
@@ -143,7 +183,11 @@ class GameView(context: Context) : View(context) {
         clearPendings()
         hp = 100
         disarmed = 0
+        heartsGot = 0
         flagsLeft = world.totalMines
+        joyOwned = false; joyOn = false
+        miniPlate = -1
+        simonState = 0; simonInput = 0
         gameOver = false; victory = false; flagMode = false
         showHelp = false; showMenu = false; showInv = false
         boomFlash = 0f; keyAnim = 0f
@@ -180,17 +224,28 @@ class GameView(context: Context) : View(context) {
         e.putInt("hx", hx)
         e.putInt("hy", hy)
         e.putInt("dis", disarmed)
+        e.putInt("hgot", heartsGot)
         e.putInt("flags", flagsLeft)
         e.putBoolean("key", world.hasKey)
         e.putBoolean("chest", world.chestOpen)
         e.putBoolean("trap", world.trapOpen)
         e.putBoolean("door", world.grid[world.door] == World.FLOOR)
+        e.putBoolean("c2s", world.chest2Spawned)
+        e.putBoolean("c2o", world.chest2Open)
+        e.putBoolean("c3s", world.chest3Spawned)
+        e.putBoolean("c3o", world.chest3Open)
+        e.putBoolean("simon", world.simonSolved)
+        e.putBoolean("d1", world.grid[world.door1] == World.FLOOR)
+        e.putBoolean("joy", joyOwned)
+        e.putBoolean("joyOn", joyOn)
         e.putString("mines", setToStr(world.mines))
         e.putString("rev", setToStr(world.revealed))
         e.putString("flg", setToStr(world.flagged))
         e.putString("exp", setToStr(world.exploded))
         e.putString("def", setToStr(world.defused))
         e.putString("blk", setToStr(world.blocks))
+        e.putString("hearts", setToStr(world.hearts))
+        e.putString("psol", setToStr(world.plateSolved))
         e.apply()
     }
 
@@ -203,15 +258,23 @@ class GameView(context: Context) : View(context) {
             prefs.getFloat("dens", 0.15f).toDouble()
         )
         world.mines.clear(); world.mines.addAll(strToSet(prefs.getString("mines", "")))
-        world.revealed.clear(); world.revealed.addAll(strToSet(prefs.getString("rev", "")))
-        world.flagged.clear(); world.flagged.addAll(strToSet(prefs.getString("flg", "")))
-        world.exploded.clear(); world.exploded.addAll(strToSet(prefs.getString("exp", "")))
-        world.defused.clear(); world.defused.addAll(strToSet(prefs.getString("def", "")))
+        world.revealed.addAll(strToSet(prefs.getString("rev", "")))
+        world.flagged.addAll(strToSet(prefs.getString("flg", "")))
+        world.exploded.addAll(strToSet(prefs.getString("exp", "")))
+        world.defused.addAll(strToSet(prefs.getString("def", "")))
         world.blocks.clear(); world.blocks.addAll(strToSet(prefs.getString("blk", "")))
+        world.hearts.clear(); world.hearts.addAll(strToSet(prefs.getString("hearts", "")))
+        world.plateSolved.addAll(strToSet(prefs.getString("psol", "")))
         world.hasKey = prefs.getBoolean("key", false)
         world.chestOpen = prefs.getBoolean("chest", false)
         world.trapOpen = prefs.getBoolean("trap", false)
+        world.chest2Spawned = prefs.getBoolean("c2s", false)
+        world.chest2Open = prefs.getBoolean("c2o", false)
+        world.chest3Open = prefs.getBoolean("c3o", false)
         if (prefs.getBoolean("door", false)) world.grid[world.door] = World.FLOOR
+        if (prefs.getBoolean("simon", false)) world.spawnAfterSimon()
+        world.chest3Spawned = prefs.getBoolean("c3s", false) || world.simonSolved
+        if (prefs.getBoolean("d1", false)) world.openDoor1()
 
         playerName = prefs.getString("name", "Heros") ?: "Heros"
         difficulty = prefs.getInt("diff", 1)
@@ -220,13 +283,18 @@ class GameView(context: Context) : View(context) {
         hx = prefs.getInt("hx", world.startX)
         hy = prefs.getInt("hy", world.startY)
         disarmed = prefs.getInt("dis", 0)
+        heartsGot = prefs.getInt("hgot", 0)
         flagsLeft = prefs.getInt("flags", world.totalMines)
+        joyOwned = prefs.getBoolean("joy", false)
+        joyOn = prefs.getBoolean("joyOn", false)
 
         fx = hx + 0.5f; fy = hy + 0.5f
         camX = fx; camY = fy
         following = true
         path = emptyList(); pathStep = 0
         clearPendings()
+        miniPlate = -1
+        simonState = 0; simonInput = 0
         gameOver = false; victory = false; flagMode = false
         showHelp = false; showMenu = false; showInv = false
         state = PLAYING
@@ -254,6 +322,10 @@ class GameView(context: Context) : View(context) {
         btnZoomIn.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
+
+        joyRadius = min(wf, hf) * 0.11f
+        joyCenter[0] = m + joyRadius * 1.4f
+        joyCenter[1] = boardBottom - joyRadius * 1.5f
 
         val cw = wf * 0.78f
         val cx0 = (wf - cw) / 2f
@@ -289,6 +361,7 @@ class GameView(context: Context) : View(context) {
         msgTimer -= dt
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
+        simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         if (state != PLAYING) return
 
         if (following) {
@@ -297,7 +370,24 @@ class GameView(context: Context) : View(context) {
         }
         clampCam()
 
-        if (gameOver || victory || showMenu || showInv || showHelp) return
+        // Lecture de la sequence de l'enigme des couleurs
+        if (simonState == 1) {
+            simonTimer -= dt
+            if (simonTimer <= 0f) {
+                simonPos++
+                if (simonPos >= world.simonSeq.size) {
+                    simonState = 2
+                    simonInput = 0
+                    showMsg("A vous : marchez sur les couleurs dans le meme ordre !")
+                } else {
+                    simonFlash = world.simonSeq[simonPos]
+                    simonFlashT = 0.42f
+                    simonTimer = 0.68f
+                }
+            }
+        }
+
+        if (gameOver || victory || showMenu || showInv || showHelp || miniPlate >= 0) return
 
         if (pathStep < path.size) {
             walkPhase += dt * 12f
@@ -311,16 +401,28 @@ class GameView(context: Context) : View(context) {
                 fx = gx; fy = gy
                 hx = tx; hy = ty
                 pathStep++
-                if (hx == world.exitX && hy == world.exitY) {
-                    victory = true
-                    prefs.edit().putBoolean("has", false).apply()
-                    return
-                }
+                onArrive()
+                if (victory) return
             } else {
                 fx += sign(dx) * min(abs(dx), speed)
                 fy += sign(dy) * min(abs(dy), speed)
             }
         } else {
+            // Deplacement direct au joystick
+            if (joyOn && joyOwned && joyPointer >= 0 && hypot(joyDX, joyDY) > 0.4f) {
+                val dirX = if (abs(joyDX) >= abs(joyDY)) sign(joyDX).toInt() else 0
+                val dirY = if (abs(joyDX) < abs(joyDY)) sign(joyDY).toInt() else 0
+                val nx = hx + dirX
+                val ny = hy + dirY
+                val ni = world.idx(nx, ny)
+                if (ni in world.blocks) {
+                    tryPush(nx, ny)
+                } else if (world.isWalkable(nx, ny)) {
+                    clearPendings()
+                    path = listOf(Pair(nx, ny))
+                    pathStep = 0
+                }
+            }
             if (pendingReveal >= 0) {
                 val i = pendingReveal; pendingReveal = -1
                 doReveal(world.cx(i), world.cy(i)); saveGame()
@@ -331,6 +433,75 @@ class GameView(context: Context) : View(context) {
                 pendingChest = false; openChest(); saveGame()
             } else if (pendingDoor) {
                 pendingDoor = false; openDoor(); saveGame()
+            } else if (pendingChest2) {
+                pendingChest2 = false; openChest2(); saveGame()
+            } else if (pendingChest3) {
+                pendingChest3 = false; openChest3(); saveGame()
+            } else if (pendingAltar) {
+                pendingAltar = false; startSimon()
+            } else if (pendingDoor1) {
+                pendingDoor1 = false
+                world.openDoor1(); saveGame()
+                showMsg("La porte de gauche s'ouvre... l'etoile brille au fond !")
+            } else if (pendingDoor2) {
+                pendingDoor2 = false
+                showMsg("Cette porte est scellee par une magie ancienne. (Prochaine mise a jour !)")
+            } else if (pendingMini >= 0) {
+                val p = pendingMini; pendingMini = -1
+                openMini(p)
+            }
+        }
+    }
+
+    /** Arrivee sur une nouvelle case : coeurs, trappe, dalles colorees. */
+    private fun onArrive() {
+        val i = world.idx(hx, hy)
+
+        // Coeur ramasse
+        if (i in world.hearts && i in world.revealed) {
+            world.hearts.remove(i)
+            heartsGot++
+            hp = (hp + 20).coerceAtMost(100)
+            showMsg("Un coeur ! +20 PV")
+            saveGame()
+        }
+        // Descente par la trappe
+        if (hx == world.trapX && hy == world.trapY && world.trapOpen) {
+            hx = world.undergroundStartX
+            hy = world.undergroundStartY
+            fx = hx + 0.5f; fy = hy + 0.5f
+            camX = fx; camY = fy
+            path = emptyList(); pathStep = 0
+            clearPendings()
+            showMsg("Vous descendez par la trappe... un couloir sombre s'etend devant vous.")
+            saveGame()
+            return
+        }
+        // L'etoile : victoire
+        if (hx == world.exitX && hy == world.exitY) {
+            victory = true
+            prefs.edit().putBoolean("has", false).apply()
+            return
+        }
+        // Saisie de l'enigme des couleurs
+        if (simonState == 2) {
+            for (k in 0..3) {
+                if (i == world.simonTiles[k]) {
+                    simonFlash = k
+                    simonFlashT = 0.3f
+                    if (k == world.simonSeq[simonInput]) {
+                        simonInput++
+                        if (simonInput >= world.simonSeq.size) {
+                            simonState = 0
+                            world.spawnAfterSimon()
+                            showMsg("L'enigme est resolue ! Un coffre et deux portes apparaissent !")
+                            saveGame()
+                        }
+                    } else {
+                        simonState = 0
+                        hurt(5, "Mauvaise couleur ! Retouchez le socle pour reecouter.")
+                    }
+                }
             }
         }
     }
@@ -345,7 +516,11 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun clearPendings() {
-        pendingReveal = -1; pendingDisarm = -1; pendingChest = false; pendingDoor = false
+        pendingReveal = -1; pendingDisarm = -1
+        pendingChest = false; pendingDoor = false
+        pendingChest2 = false; pendingChest3 = false
+        pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
+        pendingMini = -1
     }
 
     private fun hurt(n: Int, why: String) {
@@ -392,7 +567,7 @@ class GameView(context: Context) : View(context) {
 
     private fun openChest() {
         if (!world.platesSolved()) {
-            showMsg("Coffre verrouille : poussez les 3 blocs sur les 3 dalles.")
+            showMsg("Le coffre est scelle... Resolvez l'enigme de cette salle pour l'ouvrir.")
             return
         }
         if (world.chestOpen) { showMsg("Le coffre est vide."); return }
@@ -403,6 +578,21 @@ class GameView(context: Context) : View(context) {
         showMsg("Le coffre s'ouvre... une CLE EN OR s'en echappe ! (+5 drapeaux)")
     }
 
+    private fun openChest2() {
+        if (world.chest2Open) { showMsg("Ce coffre est vide."); return }
+        world.chest2Open = true
+        joyOwned = true
+        showMsg("Un JOYSTICK ! Activez-le depuis l'inventaire (menu ☰).")
+    }
+
+    private fun openChest3() {
+        if (world.chest3Open) { showMsg("Ce coffre est vide."); return }
+        world.chest3Open = true
+        flagsLeft += 5
+        hp = (hp + 30).coerceAtMost(100)
+        showMsg("Le coffre contient un elixir (+30 PV) et 5 drapeaux !")
+    }
+
     private fun openDoor() {
         if (!world.hasKey) { showMsg("Porte verrouillee. Il faut la cle du coffre."); return }
         world.grid[world.door] = World.FLOOR
@@ -410,6 +600,62 @@ class GameView(context: Context) : View(context) {
         world.revealRoomB()
         showMsg("La cle tourne dans la serrure... la porte s'ouvre !")
     }
+
+    private fun startSimon() {
+        if (world.simonSolved) { showMsg("Le socle est eteint : l'enigme est deja resolue."); return }
+        simonState = 1
+        simonPos = -1
+        simonTimer = 0.7f
+        showMsg("Le socle s'illumine... memorisez l'ordre des couleurs !")
+    }
+
+    // ------------------------------------------------------------ mini-demineur
+
+    /** Genere le mini-plateau 3x3 de la dalle p (reproductible via la graine). */
+    private fun openMini(p: Int) {
+        miniPlate = p
+        miniLayout.clear(); miniRev.clear(); miniFlag.clear()
+        val r = Random(world.seed + p)
+        while (miniLayout.size < 2) miniLayout.add(r.nextInt(9))
+    }
+
+    private fun miniCount(c: Int): Int {
+        val x = c % 3
+        val y = c / 3
+        var n = 0
+        for (dy in -1..1) for (dx in -1..1) {
+            if (dx == 0 && dy == 0) continue
+            val nx = x + dx
+            val ny = y + dy
+            if (nx in 0..2 && ny in 0..2 && (ny * 3 + nx) in miniLayout) n++
+        }
+        return n
+    }
+
+    private fun miniTap(c: Int, long: Boolean) {
+        if (c in miniRev) return
+        if (long) {
+            if (c in miniFlag) miniFlag.remove(c) else miniFlag.add(c)
+            return
+        }
+        if (c in miniFlag) return
+        if (c in miniLayout) {
+            hurt(10, "BOUM ! Le mini-demineur se reinitialise. -10 PV")
+            miniRev.clear(); miniFlag.clear()
+            if (gameOver) miniPlate = -1
+            return
+        }
+        miniRev.add(c)
+        if (miniRev.size >= 9 - miniLayout.size) {
+            world.plateSolved.add(miniPlate)
+            miniPlate = -1
+            val n = world.plateSolved.size
+            showMsg("Dalle decouverte ! ($n/3) Vous pouvez y pousser un bloc.")
+            saveGame()
+        }
+    }
+
+    // ------------------------------------------------------------ actions
 
     private fun walkNextTo(gx: Int, gy: Int): Boolean {
         var best: List<Pair<Int, Int>>? = null
@@ -432,7 +678,15 @@ class GameView(context: Context) : View(context) {
         if (abs(dx) + abs(dy) != 1) return false
         val tx = bxx + dx
         val ty = byy + dy
-        if (!world.canPushInto(tx, ty)) { showMsg("La caisse ne peut pas aller plus loin."); return true }
+        if (!world.canPushInto(tx, ty)) {
+            val ti = world.idx(tx, ty)
+            if (ti in world.plates && ti !in world.plateSolved) {
+                showMsg("Cette dalle est recouverte : resolvez d'abord son mini-demineur !")
+            } else {
+                showMsg("La caisse ne peut pas aller plus loin.")
+            }
+            return true
+        }
         world.blocks.remove(world.idx(bxx, byy))
         world.blocks.add(world.idx(tx, ty))
         world.revealed.add(world.idx(tx, ty))
@@ -443,14 +697,15 @@ class GameView(context: Context) : View(context) {
 
         if (world.trapSolved() && !world.trapOpen) {
             world.trapOpen = true
-            world.revealed.add(world.idx(world.exitX, world.exitY))
-            showMsg("CLAC ! Les 4 caisses sont rangees : une TRAPPE s'ouvre !")
+            world.chest2Spawned = true
+            world.revealed.add(world.idx(world.trapX, world.trapY))
+            showMsg("CLAC ! La TRAPPE s'ouvre... et un coffre apparait dans la salle !")
         } else if (world.platesSolved() && !world.chestOpen) {
-            showMsg("Les 3 dalles sont enfoncees : le coffre est deverrouille !")
+            showMsg("Un declic sourd... le coffre est deverrouille !")
         } else {
             val d = world.plates.count { it in world.blocks }
             val c = world.targets.count { it in world.blocks }
-            showMsg(if (world.hasKey) "Caisses rangees : $c / 4" else "Dalles enfoncees : $d / 3")
+            showMsg(if (world.hasKey) "Caisses rangees : $c / 4" else "Blocs en place : $d / 3")
         }
         saveGame()
         return true
@@ -460,13 +715,29 @@ class GameView(context: Context) : View(context) {
         if (gameOver || victory) return
         val i = world.idx(gx, gy)
 
+        // Dalle de pression recouverte : ouvrir le mini-demineur
+        if (i in world.plates && i !in world.plateSolved && i !in world.blocks) {
+            if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la dalle."); return }
+            clearPendings(); pendingMini = i
+            return
+        }
         if (world.isDoor(gx, gy)) {
             if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la porte."); return }
-            clearPendings(); pendingDoor = true
+            clearPendings()
+            when (i) {
+                world.door1 -> pendingDoor1 = true
+                world.door2 -> pendingDoor2 = true
+                else -> pendingDoor = true
+            }
             return
         }
         if (!world.isFloor(gx, gy)) { showMsg("C'est un mur."); return }
 
+        if (i == world.altar) {
+            if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du socle."); return }
+            clearPendings(); pendingAltar = true
+            return
+        }
         if (i in world.blocks) {
             if (tryPush(gx, gy)) return
             if (!walkNextTo(gx, gy)) { showMsg("Caisse inaccessible."); return }
@@ -477,6 +748,16 @@ class GameView(context: Context) : View(context) {
         if (i == world.chest) {
             if (!walkNextTo(gx, gy)) { showMsg("Coffre inaccessible."); return }
             clearPendings(); pendingChest = true
+            return
+        }
+        if (world.chest2Spawned && i == world.chest2) {
+            if (!walkNextTo(gx, gy)) { showMsg("Coffre inaccessible."); return }
+            clearPendings(); pendingChest2 = true
+            return
+        }
+        if (world.chest3Spawned && i == world.chest3) {
+            if (!walkNextTo(gx, gy)) { showMsg("Coffre inaccessible."); return }
+            clearPendings(); pendingChest3 = true
             return
         }
         if (i in world.revealed && i !in world.mines && i !in world.flagged) {
@@ -540,11 +821,13 @@ class GameView(context: Context) : View(context) {
         canvas.restore()
 
         drawHud(canvas, w, h)
+        if (joyOn && joyOwned) drawJoystick(canvas)
 
         if (boomFlash > 0f) {
             paint.color = Color.argb((boomFlash * 170).toInt(), 255, 120, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
         }
+        if (miniPlate >= 0) drawMini(canvas, w, h)
         if (showMenu) drawMenu(canvas, w, h)
         if (showInv) drawInventory(canvas, w, h)
         if (showHelp) drawHelp(canvas, w, h)
@@ -566,7 +849,7 @@ class GameView(context: Context) : View(context) {
         paint.isFakeBoldText = false
         paint.color = Color.rgb(150, 160, 185)
         paint.textSize = h * 0.019f
-        canvas.drawText("Demineur, caisses et coffre au tresor", w / 2f, h * 0.19f, paint)
+        canvas.drawText("Demineur, enigmes et tresors", w / 2f, h * 0.19f, paint)
 
         paint.textAlign = Paint.Align.LEFT
         paint.color = Color.rgb(140, 150, 175)
@@ -591,8 +874,8 @@ class GameView(context: Context) : View(context) {
         paint.color = if (enabled) Color.WHITE else Color.rgb(90, 95, 110)
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
-        paint.textSize = r.height() * 0.36f
-        canvas.drawText(label, r.centerX(), r.centerY() + r.height() * 0.13f, paint)
+        paint.textSize = r.height() * 0.34f
+        canvas.drawText(label, r.centerX(), r.centerY() + r.height() * 0.12f, paint)
         paint.isFakeBoldText = false
     }
 
@@ -623,10 +906,11 @@ class GameView(context: Context) : View(context) {
                 if (world.grid[i] == World.DOOR) { drawDoor(canvas); continue }
 
                 val rev = i in world.revealed
+                val isTrap = gx == world.trapX && gy == world.trapY
                 val isExit = gx == world.exitX && gy == world.exitY
 
                 when {
-                    isExit && rev -> drawTrap(canvas)
+                    isTrap && rev -> drawTrap(canvas)
                     i in world.exploded -> drawBomb(canvas, true)
                     i in world.defused -> drawBomb(canvas, false)
                     rev -> {
@@ -634,10 +918,20 @@ class GameView(context: Context) : View(context) {
                         canvas.drawRoundRect(rect, rad, rad, paint)
                         paint.color = Color.rgb(198, 206, 216)
                         canvas.drawRect(rect.left, rect.bottom - tile * 0.05f, rect.right, rect.bottom, paint)
-                        if (i in world.plates) drawPlate(canvas, i)
+                        if (i in world.plates) {
+                            if (i in world.plateSolved) drawPlate(canvas, i) else drawCoveredPlate(canvas)
+                        }
                         if (i in world.targets) drawTarget(canvas, i)
+                        var k = -1
+                        for (s in 0..3) if (i == world.simonTiles[s]) k = s
+                        if (k >= 0) drawSimonTile(canvas, k)
+                        if (i == world.altar) drawAltar(canvas)
+                        if (isExit) drawStar(canvas)
+                        if (i in world.hearts) drawHeart(canvas)
                         val n = world.countAround(gx, gy)
-                        if (n > 0 && i !in world.plates && i !in world.targets) {
+                        if (n > 0 && i !in world.plates && i !in world.targets && k < 0 &&
+                            i != world.altar && !isExit && i !in world.hearts
+                        ) {
                             paint.color = numberColor(n)
                             paint.textAlign = Paint.Align.CENTER
                             paint.textSize = tile * 0.56f
@@ -657,7 +951,9 @@ class GameView(context: Context) : View(context) {
                         if (i in world.flagged) drawFlag(canvas)
                     }
                 }
-                if (i == world.chest) drawChest(canvas)
+                if (i == world.chest) drawChest(canvas, world.platesSolved(), world.chestOpen, true)
+                if (world.chest2Spawned && i == world.chest2) drawChest(canvas, true, world.chest2Open, false)
+                if (world.chest3Spawned && i == world.chest3) drawChest(canvas, true, world.chest3Open, false)
                 if (i in world.blocks) drawCrate(canvas, i in world.plates || i in world.targets)
             }
         }
@@ -679,7 +975,6 @@ class GameView(context: Context) : View(context) {
         tmpRect.inset(tile * 0.07f, tile * 0.07f)
         paint.color = Color.rgb(126, 78, 178)
         canvas.drawRoundRect(tmpRect, rad, rad, paint)
-        // Serrure doree
         paint.color = Color.rgb(248, 214, 96)
         canvas.drawCircle(rect.centerX(), rect.centerY() - tile * 0.04f, tile * 0.1f, paint)
         val p = Path()
@@ -693,7 +988,6 @@ class GameView(context: Context) : View(context) {
         canvas.drawCircle(rect.centerX(), rect.centerY() - tile * 0.04f, tile * 0.04f, paint)
     }
 
-    /** Bombe : rouge si explosee, grise si desamorcee (avec sa meche). */
     private fun drawBomb(canvas: Canvas, boom: Boolean) {
         val rad = tile * 0.16f
         paint.color = if (boom) Color.rgb(150, 45, 42) else Color.rgb(96, 104, 118)
@@ -702,10 +996,8 @@ class GameView(context: Context) : View(context) {
         val cyy = rect.centerY() + tile * 0.03f
         paint.color = if (boom) Color.rgb(28, 26, 30) else Color.rgb(46, 50, 60)
         canvas.drawCircle(cxx, cyy, tile * 0.2f, paint)
-        // reflet
         paint.color = Color.argb(90, 255, 255, 255)
         canvas.drawCircle(cxx - tile * 0.07f, cyy - tile * 0.08f, tile * 0.05f, paint)
-        // meche
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = tile * 0.04f
         paint.color = if (boom) Color.rgb(230, 170, 60) else Color.rgb(120, 128, 140)
@@ -730,6 +1022,33 @@ class GameView(context: Context) : View(context) {
         canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.09f, paint)
     }
 
+    /** Dalle de pression recouverte : petite grille 3x3 a resoudre. */
+    private fun drawCoveredPlate(canvas: Canvas) {
+        tmpRect.set(rect)
+        tmpRect.inset(tile * 0.1f, tile * 0.1f)
+        paint.color = Color.rgb(52, 62, 80)
+        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.025f
+        paint.color = Color.rgb(90, 102, 124)
+        val x1 = tmpRect.left + tmpRect.width() / 3f
+        val x2 = tmpRect.left + tmpRect.width() * 2f / 3f
+        val y1 = tmpRect.top + tmpRect.height() / 3f
+        val y2 = tmpRect.top + tmpRect.height() * 2f / 3f
+        canvas.drawLine(x1, tmpRect.top, x1, tmpRect.bottom, paint)
+        canvas.drawLine(x2, tmpRect.top, x2, tmpRect.bottom, paint)
+        canvas.drawLine(tmpRect.left, y1, tmpRect.right, y1, paint)
+        canvas.drawLine(tmpRect.left, y2, tmpRect.right, y2, paint)
+        canvas.drawRoundRect(tmpRect, tile * 0.06f, tile * 0.06f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 210, 90)
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = tile * 0.3f
+        paint.isFakeBoldText = true
+        canvas.drawText("?", rect.centerX(), rect.centerY() + tile * 0.1f, paint)
+        paint.isFakeBoldText = false
+    }
+
     private fun drawTarget(canvas: Canvas, i: Int) {
         val on = i in world.blocks
         paint.style = Paint.Style.STROKE
@@ -742,21 +1061,81 @@ class GameView(context: Context) : View(context) {
         canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.06f, paint)
     }
 
-    /** Caisse en bois avec planches, croix et coins metalliques. */
+    private fun drawSimonTile(canvas: Canvas, k: Int) {
+        val flashing = simonFlash == k && simonFlashT > 0f
+        val base = simonColors[k]
+        paint.color = if (flashing) base else Color.argb(
+            255,
+            (Color.red(base) * 0.45f).toInt(),
+            (Color.green(base) * 0.45f).toInt(),
+            (Color.blue(base) * 0.45f).toInt()
+        )
+        tmpRect.set(rect)
+        tmpRect.inset(tile * 0.08f, tile * 0.08f)
+        canvas.drawRoundRect(tmpRect, tile * 0.1f, tile * 0.1f, paint)
+        if (flashing) {
+            paint.color = Color.argb(120, 255, 255, 255)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.45f, paint)
+        }
+    }
+
+    private fun drawAltar(canvas: Canvas) {
+        val cxx = rect.centerX()
+        val cyy = rect.centerY()
+        paint.color = Color.rgb(70, 78, 96)
+        canvas.drawRoundRect(
+            RectF(cxx - tile * 0.28f, cyy - tile * 0.1f, cxx + tile * 0.28f, cyy + tile * 0.32f),
+            tile * 0.06f, tile * 0.06f, paint
+        )
+        paint.color = Color.rgb(100, 110, 132)
+        canvas.drawRoundRect(
+            RectF(cxx - tile * 0.34f, cyy - tile * 0.22f, cxx + tile * 0.34f, cyy - tile * 0.06f),
+            tile * 0.05f, tile * 0.05f, paint
+        )
+        val pulse = 0.5f + 0.5f * sin(time * 3f)
+        paint.color = if (world.simonSolved) Color.rgb(90, 100, 120)
+        else Color.argb(255, 160 + (95 * pulse).toInt(), 120 + (80 * pulse).toInt(), 255)
+        canvas.drawCircle(cxx, cyy - tile * 0.14f, tile * 0.09f, paint)
+    }
+
+    private fun drawStar(canvas: Canvas) {
+        val pulse = 0.5f + 0.5f * sin(time * 4f)
+        paint.color = Color.argb((70 + 80 * pulse).toInt(), 90, 240, 150)
+        canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.42f, paint)
+        paint.color = Color.rgb(60, 210, 115)
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = tile * 0.6f
+        paint.isFakeBoldText = true
+        canvas.drawText("★", rect.centerX(), rect.centerY() + tile * 0.22f, paint)
+        paint.isFakeBoldText = false
+    }
+
+    private fun drawHeart(canvas: Canvas) {
+        val cxx = rect.centerX()
+        val cyy = rect.centerY() + tile * 0.04f
+        val s = tile * 0.2f * (1f + 0.08f * sin(time * 5f))
+        paint.color = Color.rgb(230, 60, 80)
+        val p = Path()
+        p.moveTo(cxx, cyy + s)
+        p.cubicTo(cxx - s * 1.5f, cyy - s * 0.2f, cxx - s * 0.7f, cyy - s * 1.2f, cxx, cyy - s * 0.35f)
+        p.cubicTo(cxx + s * 0.7f, cyy - s * 1.2f, cxx + s * 1.5f, cyy - s * 0.2f, cxx, cyy + s)
+        p.close()
+        canvas.drawPath(p, paint)
+        paint.color = Color.argb(120, 255, 255, 255)
+        canvas.drawCircle(cxx - s * 0.35f, cyy - s * 0.45f, s * 0.18f, paint)
+    }
+
     private fun drawCrate(canvas: Canvas, onTarget: Boolean) {
         tmpRect.set(rect)
         tmpRect.inset(tile * 0.015f, tile * 0.015f)
         val body = if (onTarget) Color.rgb(126, 176, 96) else Color.rgb(170, 118, 62)
         val dark = if (onTarget) Color.rgb(74, 118, 58) else Color.rgb(112, 74, 36)
         val light = if (onTarget) Color.rgb(160, 205, 125) else Color.rgb(205, 155, 95)
-
         paint.color = body
         canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
-        // planches horizontales
         paint.color = light
         canvas.drawRect(tmpRect.left, tmpRect.top + tile * 0.06f, tmpRect.right, tmpRect.top + tile * 0.11f, paint)
         canvas.drawRect(tmpRect.left, tmpRect.bottom - tile * 0.11f, tmpRect.right, tmpRect.bottom - tile * 0.06f, paint)
-        // croix
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = tile * 0.06f
         paint.color = dark
@@ -765,7 +1144,6 @@ class GameView(context: Context) : View(context) {
         paint.strokeWidth = tile * 0.045f
         canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
         paint.style = Paint.Style.FILL
-        // coins metalliques
         paint.color = Color.rgb(120, 126, 138)
         val s = tile * 0.09f
         canvas.drawRect(tmpRect.left, tmpRect.top, tmpRect.left + s, tmpRect.top + s, paint)
@@ -774,22 +1152,16 @@ class GameView(context: Context) : View(context) {
         canvas.drawRect(tmpRect.right - s, tmpRect.bottom - s, tmpRect.right, tmpRect.bottom, paint)
     }
 
-    /** Coffre au tresor : ferme, deverrouille (brillant), ou ouvert avec l'or dedans. */
-    private fun drawChest(canvas: Canvas) {
+    private fun drawChest(canvas: Canvas, unlocked: Boolean, open: Boolean, withKeyAnim: Boolean) {
         val cxx = rect.centerX()
         val cyy = rect.centerY()
         val w = tile * 0.36f
-        val unlocked = world.platesSolved()
-        val open = world.chestOpen
 
-        // Halo quand il est deverrouille mais pas encore ouvert
         if (unlocked && !open) {
             val pulse = 0.5f + 0.5f * sin(time * 4f)
             paint.color = Color.argb((70 + 90 * pulse).toInt(), 255, 220, 90)
             canvas.drawCircle(cxx, cyy, tile * 0.46f, paint)
         }
-
-        // Corps du coffre
         paint.color = Color.rgb(122, 78, 40)
         tmpRect.set(cxx - w, cyy - w * 0.15f, cxx + w, cyy + w * 0.75f)
         canvas.drawRoundRect(tmpRect, tile * 0.05f, tile * 0.05f, paint)
@@ -797,7 +1169,6 @@ class GameView(context: Context) : View(context) {
         canvas.drawRect(cxx - w, cyy + w * 0.05f, cxx + w, cyy + w * 0.3f, paint)
 
         if (!open) {
-            // Couvercle ferme, bombe
             paint.color = Color.rgb(96, 60, 30)
             tmpRect.set(cxx - w, cyy - w * 0.75f, cxx + w, cyy - w * 0.05f)
             canvas.drawRoundRect(tmpRect, tile * 0.14f, tile * 0.14f, paint)
@@ -805,7 +1176,6 @@ class GameView(context: Context) : View(context) {
             tmpRect.set(cxx - w * 0.9f, cyy - w * 0.68f, cxx + w * 0.9f, cyy - w * 0.2f)
             canvas.drawRoundRect(tmpRect, tile * 0.1f, tile * 0.1f, paint)
         } else {
-            // Couvercle ouvert vers l'arriere + or a l'interieur
             paint.color = Color.rgb(70, 44, 22)
             tmpRect.set(cxx - w, cyy - w * 0.35f, cxx + w, cyy - w * 0.1f)
             canvas.drawRoundRect(tmpRect, tile * 0.05f, tile * 0.05f, paint)
@@ -817,13 +1187,9 @@ class GameView(context: Context) : View(context) {
             canvas.drawCircle(cxx, cyy + w * 0.3f, tile * 0.07f, paint)
             canvas.drawCircle(cxx + w * 0.42f, cyy + w * 0.18f, tile * 0.055f, paint)
         }
-
-        // Ferrures dorees
         paint.color = Color.rgb(238, 196, 78)
         canvas.drawRect(cxx - w * 0.12f, cyy - w * 0.15f, cxx + w * 0.12f, cyy + w * 0.75f, paint)
         if (!open) {
-            // Cadenas
-            paint.color = Color.rgb(238, 196, 78)
             canvas.drawRoundRect(
                 RectF(cxx - w * 0.18f, cyy - w * 0.18f, cxx + w * 0.18f, cyy + w * 0.2f),
                 tile * 0.03f, tile * 0.03f, paint
@@ -831,9 +1197,7 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.rgb(70, 44, 22)
             canvas.drawCircle(cxx, cyy + w * 0.01f, tile * 0.035f, paint)
         }
-
-        // La cle qui s'echappe du coffre
-        if (keyAnim > 0f) {
+        if (withKeyAnim && keyAnim > 0f) {
             val t = 1f - keyAnim / 3f
             val ky = cyy - w * 1.0f - tile * 0.7f * t
             paint.color = Color.argb((255 * (1f - t * 0.35f)).toInt(), 255, 225, 110)
@@ -841,16 +1205,11 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb((160 * (1f - t)).toInt(), 255, 255, 200)
             for (k in 0..4) {
                 val a = time * 3f + k * 1.25f
-                canvas.drawCircle(
-                    cxx + cos(a) * tile * 0.3f,
-                    ky + sin(a) * tile * 0.22f,
-                    tile * 0.035f, paint
-                )
+                canvas.drawCircle(cxx + cos(a) * tile * 0.3f, ky + sin(a) * tile * 0.22f, tile * 0.035f, paint)
             }
         }
     }
 
-    /** Dessine une vraie cle (anneau + tige + dents). */
     private fun drawKeyShape(canvas: Canvas, cxx: Float, cyy: Float, s: Float) {
         val col = paint.color
         paint.style = Paint.Style.STROKE
@@ -955,6 +1314,79 @@ class GameView(context: Context) : View(context) {
         else -> Color.rgb(110, 110, 110)
     }
 
+    // ---------------------------------------------------------- mini-demineur
+
+    private fun drawMini(canvas: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(215, 8, 10, 18)
+        canvas.drawRect(0f, 0f, w, h, paint)
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = Color.rgb(255, 210, 90)
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.028f
+        canvas.drawText("MINI-DEMINEUR DE LA DALLE", w / 2f, h * 0.18f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.rgb(170, 180, 200)
+        paint.textSize = h * 0.017f
+        canvas.drawText("2 mines cachees. Revelez les 7 cases sures.", w / 2f, h * 0.22f, paint)
+        canvas.drawText("Appui long = drapeau. Erreur = -10 PV et tout se referme.", w / 2f, h * 0.25f, paint)
+
+        val cs = min(w, h) * 0.16f
+        val gap = cs * 0.08f
+        val total = cs * 3 + gap * 2
+        val x0 = (w - total) / 2f
+        val y0 = h * 0.32f
+        for (c in 0..8) {
+            val gx = c % 3
+            val gy = c / 3
+            miniRects[c].set(
+                x0 + gx * (cs + gap), y0 + gy * (cs + gap),
+                x0 + gx * (cs + gap) + cs, y0 + gy * (cs + gap) + cs
+            )
+            val r = miniRects[c]
+            if (c in miniRev) {
+                paint.color = Color.rgb(226, 232, 240)
+                canvas.drawRoundRect(r, cs * 0.14f, cs * 0.14f, paint)
+                val n = miniCount(c)
+                if (n > 0) {
+                    paint.color = numberColor(n)
+                    paint.textSize = cs * 0.55f
+                    paint.isFakeBoldText = true
+                    canvas.drawText("$n", r.centerX(), r.centerY() + cs * 0.2f, paint)
+                    paint.isFakeBoldText = false
+                }
+            } else {
+                paint.color = Color.rgb(46, 56, 74)
+                canvas.drawRoundRect(r, cs * 0.14f, cs * 0.14f, paint)
+                if (c in miniFlag) {
+                    paint.color = Color.rgb(230, 55, 50)
+                    paint.textSize = cs * 0.5f
+                    canvas.drawText("⚑", r.centerX(), r.centerY() + cs * 0.17f, paint)
+                }
+            }
+        }
+        paint.color = Color.rgb(150, 160, 185)
+        paint.textSize = h * 0.018f
+        canvas.drawText("Touchez en dehors de la grille pour fermer", w / 2f, y0 + total + h * 0.05f, paint)
+    }
+
+    // ---------------------------------------------------------- joystick
+
+    private fun drawJoystick(canvas: Canvas) {
+        paint.color = Color.argb(70, 255, 255, 255)
+        canvas.drawCircle(joyCenter[0], joyCenter[1], joyRadius, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = joyRadius * 0.07f
+        paint.color = Color.argb(120, 255, 255, 255)
+        canvas.drawCircle(joyCenter[0], joyCenter[1], joyRadius, paint)
+        paint.style = Paint.Style.FILL
+        val kx = joyCenter[0] + joyDX * joyRadius * 0.55f
+        val ky = joyCenter[1] + joyDY * joyRadius * 0.55f
+        paint.color = Color.argb(210, 220, 226, 238)
+        canvas.drawCircle(kx, ky, joyRadius * 0.42f, paint)
+        paint.color = Color.rgb(60, 70, 92)
+        canvas.drawCircle(kx, ky, joyRadius * 0.18f, paint)
+    }
+
     // ---------------------------------------------------------- HUD
 
     private fun drawHud(canvas: Canvas, w: Float, h: Float) {
@@ -980,10 +1412,7 @@ class GameView(context: Context) : View(context) {
 
         paint.textAlign = Paint.Align.RIGHT
         paint.textSize = ts * 0.9f
-        canvas.drawText(
-            "Mines ${world.mines.size}   Drapeaux $flagsLeft",
-            w - w * 0.09f, by + ts * 1.05f, paint
-        )
+        canvas.drawText("Mines ${world.mines.size}   Drapeaux $flagsLeft", w - w * 0.09f, by + ts * 1.05f, paint)
         if (world.hasKey) {
             paint.color = Color.rgb(255, 216, 92)
             drawKeyShape(canvas, w - w * 0.045f, by + ts * 0.7f, ts * 1.5f)
@@ -992,16 +1421,17 @@ class GameView(context: Context) : View(context) {
         paint.textAlign = Paint.Align.LEFT
         paint.color = Color.rgb(150, 160, 180)
         paint.textSize = ts * 0.85f
-        val d = world.plates.count { it in world.blocks }
         val c = world.targets.count { it in world.blocks }
         val doorOpen = world.grid[world.door] == World.FLOOR
+        val underground = hy >= world.uy0
         val obj = when {
-            world.trapOpen -> "Objectif : rejoindre la TRAPPE ouverte !"
+            underground && world.simonSolved -> "Objectif : le coffre... et choisissez une porte !"
+            underground -> "Objectif : touchez le socle et resolvez l'enigme des couleurs."
+            world.trapOpen -> "Objectif : le coffre apparu, puis descendez par la TRAPPE !"
             doorOpen -> "Objectif : ranger les 4 caisses au fond de l'alcove ($c/4)."
             world.hasKey -> "Objectif : ouvrir la porte violette avec la cle."
-            world.platesSolved() -> "Objectif : ouvrir le coffre (la cle est dedans)."
             hx <= world.hallW -> "Objectif : traverser le champ de mines vers la droite."
-            else -> "Objectif : pousser les 3 blocs sur les 3 dalles ($d/3)."
+            else -> "Objectif : resoudre l'enigme de la salle pour ouvrir le coffre."
         }
         canvas.drawText(obj, bx, boardTop * 0.55f, paint)
 
@@ -1060,33 +1490,42 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.rgb(255, 210, 90)
         paint.isFakeBoldText = true
         paint.textSize = h * 0.032f
-        canvas.drawText("INVENTAIRE", w / 2f, h * 0.15f, paint)
+        canvas.drawText("INVENTAIRE", w / 2f, h * 0.13f, paint)
         paint.isFakeBoldText = false
 
+        val joyLabel = when {
+            !joyOwned -> "pas trouve"
+            joyOn -> "ACTIF (touchez pour couper)"
+            else -> "touchez pour ACTIVER"
+        }
         val items = listOf(
             Triple("Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
             Triple("Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
+            Triple("Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             Triple("Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
             Triple("Mines restantes", "${world.mines.size}", Color.rgb(180, 190, 210)),
             Triple("Points de vie", if (godMode) "illimites" else "$hp", Color.rgb(215, 90, 85)),
-            Triple("Epee", "a venir", Color.rgb(120, 130, 150))
+            Triple("Joystick", joyLabel, Color.rgb(120, 190, 240))
         )
-        var y = h * 0.23f
-        val bw = w * 0.78f
+        var y = h * 0.19f
+        val bw = w * 0.8f
         val bx = (w - bw) / 2f
-        for ((label, value, col) in items) {
+        for ((k, item) in items.withIndex()) {
+            val (label, value, col) = item
             tmpRect.set(bx, y, bx + bw, y + h * 0.06f)
-            paint.color = Color.rgb(28, 33, 46)
+            if (label == "Joystick") invJoyRect.set(tmpRect)
+            paint.color = if (label == "Joystick" && joyOn) Color.rgb(40, 60, 82) else Color.rgb(28, 33, 46)
             canvas.drawRoundRect(tmpRect, h * 0.012f, h * 0.012f, paint)
             paint.color = col
             canvas.drawCircle(bx + h * 0.03f, tmpRect.centerY(), h * 0.014f, paint)
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.LEFT
-            paint.textSize = h * 0.02f
+            paint.textSize = h * 0.019f
             canvas.drawText(label, bx + h * 0.055f, tmpRect.centerY() + h * 0.007f, paint)
             paint.textAlign = Paint.Align.RIGHT
             paint.color = col
             paint.isFakeBoldText = true
+            paint.textSize = h * 0.017f
             canvas.drawText(value, bx + bw - h * 0.02f, tmpRect.centerY() + h * 0.007f, paint)
             paint.isFakeBoldText = false
             y += h * 0.072f
@@ -1094,7 +1533,7 @@ class GameView(context: Context) : View(context) {
         paint.textAlign = Paint.Align.CENTER
         paint.color = Color.rgb(150, 160, 185)
         paint.textSize = h * 0.018f
-        canvas.drawText("Touchez l'ecran pour fermer", w / 2f, h * 0.9f, paint)
+        canvas.drawText("Touchez ailleurs pour fermer", w / 2f, h * 0.9f, paint)
     }
 
     private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
@@ -1103,44 +1542,45 @@ class GameView(context: Context) : View(context) {
         paint.textAlign = Paint.Align.LEFT
         paint.color = Color.rgb(255, 225, 140)
         paint.isFakeBoldText = true
-        paint.textSize = h * 0.026f
-        canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.09f, paint)
+        paint.textSize = h * 0.024f
+        canvas.drawText("COMMENT JOUER", w * 0.07f, h * 0.08f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
-        paint.textSize = h * 0.0155f
+        paint.textSize = h * 0.0148f
         val lines = listOf(
             "1) LA GRANDE SALLE = un vrai demineur.",
             "• Touchez une dalle : le heros y va seul et la sonde.",
-            "• Le chiffre = nombre de mines autour (il ne change JAMAIS).",
-            "• Sonder une mine = -20 PV.",
-            "• APPUI LONG (ou bouton DRAPEAU) = marquer une dalle.",
-            "• Retouchez une dalle marquee : le heros la DESAMORCE sans",
-            "  risque, mais le drapeau est CONSOMME.",
-            "• Autant de drapeaux que de mines : un drapeau gaspille sur",
-            "  une dalle vide = une mine a faire sauter plus tard !",
-            "• Traversez jusqu'au passage de droite.",
+            "• Appui long = drapeau. Retoucher la dalle = desamorcage",
+            "  sans risque, mais le drapeau est consomme.",
+            "• Des COEURS sont caches sous certaines dalles : marchez",
+            "  dessus pour recuperer +20 PV.",
             "",
             "2) LA SALLE DU COFFRE",
-            "• Placez-vous a cote d'un bloc, touchez-le pour le pousser.",
-            "• 3 blocs sur les 3 dalles orange -> le coffre s'ouvre -> CLE.",
-            "• La cle ouvre la PORTE violette.",
+            "• Chaque dalle de pression est recouverte : touchez-la pour",
+            "  ouvrir son MINI-DEMINEUR 3x3 et la decouvrir.",
+            "• Poussez ensuite les 3 blocs dessus -> coffre -> CLE.",
+            "• La cle ouvre la porte violette.",
             "",
-            "3) LA SALLE DE RANGEMENT",
-            "• 4 caisses a ranger sur les 4 dalles BLEUES de l'alcove.",
-            "• Les caisses ne montent que par le puits du milieu, et le",
-            "  heros ne peut les contourner que par le puits de droite :",
-            "  il n'y a qu'UNE seule solution, la plus profonde d'abord.",
-            "• Les 4 caisses rangees -> la TRAPPE s'ouvre = victoire.",
-            "• Coince ? Menu ☰ > REINITIALISER LES CAISSES.",
+            "3) LA SALLE DE RANGEMENT (sokoban)",
+            "• 4 caisses -> 4 dalles bleues au fond de l'alcove.",
+            "• Une seule solution : la plus profonde d'abord !",
+            "• Reussi -> la TRAPPE s'ouvre + un coffre apparait",
+            "  (il contient le JOYSTICK, activable dans l'inventaire).",
+            "• Coince ? Menu ☰ > Reinitialiser les caisses.",
             "",
-            "Glissez le doigt = deplacer la carte.  − / + = zoom.  ◎ = recentrer.",
+            "4) LE SOUS-SOL",
+            "• Descendez par la trappe, suivez le couloir.",
+            "• Touchez le SOCLE : 4 couleurs clignotent dans un ordre.",
+            "• Marchez sur les dalles colorees dans le MEME ordre.",
+            "• Reussi -> un coffre + 2 portes apparaissent.",
+            "• La bonne porte mene a l'etoile : victoire !",
             "",
             "Touchez l'ecran pour fermer."
         )
-        var y = h * 0.13f
+        var y = h * 0.115f
         for (line in lines) {
             canvas.drawText(line, w * 0.07f, y, paint)
-            y += h * 0.0272f
+            y += h * 0.0265f
         }
     }
 
@@ -1156,7 +1596,7 @@ class GameView(context: Context) : View(context) {
         paint.color = Color.WHITE
         paint.textSize = h * 0.023f
         canvas.drawText("$playerName  -  ${diffName(difficulty)}", w / 2f, h * 0.47f, paint)
-        canvas.drawText("Mines desamorcees : $disarmed", w / 2f, h * 0.51f, paint)
+        canvas.drawText("Mines desamorcees : $disarmed   Coeurs : $heartsGot", w / 2f, h * 0.51f, paint)
         canvas.drawText("Touchez l'ecran pour revenir au menu", w / 2f, h * 0.56f, paint)
     }
 
@@ -1179,15 +1619,45 @@ class GameView(context: Context) : View(context) {
             .show()
     }
 
+    private fun inJoystick(x: Float, y: Float) =
+        hypot(x - joyCenter[0], y - joyCenter[1]) <= joyRadius * 1.35f
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        when (e.actionMasked) {
+        val am = e.actionMasked
+        // Gestion multi-touch du joystick
+        if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&
+            !showMenu && !showInv && !showHelp && !gameOver && !victory
+        ) {
+            when (am) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    val id = e.getPointerId(e.actionIndex)
+                    if (joyPointer < 0 && inJoystick(e.getX(e.actionIndex), e.getY(e.actionIndex))) {
+                        joyPointer = id
+                        updateJoy(e)
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> if (joyPointer >= 0) { updateJoy(e); return true }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (joyPointer >= 0) { joyPointer = -1; joyDX = 0f; joyDY = 0f; return true }
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (e.getPointerId(e.actionIndex) == joyPointer) {
+                        joyPointer = -1; joyDX = 0f; joyDY = 0f
+                        return true
+                    }
+                }
+            }
+        }
+
+        when (am) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
                 downTime = System.currentTimeMillis()
                 dragging = false
             }
             MotionEvent.ACTION_MOVE -> {
-                if (state != PLAYING || showMenu || showInv || showHelp) return true
+                if (state != PLAYING || showMenu || showInv || showHelp || miniPlate >= 0) return true
                 val dx = e.x - lastX
                 val dy = e.y - lastY
                 if (!dragging && hypot(e.x - downX, e.y - downY) > tile * 0.35f) dragging = true
@@ -1204,9 +1674,36 @@ class GameView(context: Context) : View(context) {
         return true
     }
 
+    private fun updateJoy(e: MotionEvent) {
+        for (i in 0 until e.pointerCount) {
+            if (e.getPointerId(i) == joyPointer) {
+                val dx = (e.getX(i) - joyCenter[0]) / joyRadius
+                val dy = (e.getY(i) - joyCenter[1]) / joyRadius
+                val d = hypot(dx, dy)
+                if (d > 1f) { joyDX = dx / d; joyDY = dy / d } else { joyDX = dx; joyDY = dy }
+            }
+        }
+    }
+
     private fun handleUp(e: MotionEvent): Boolean {
         if (showHelp) { showHelp = false; return true }
-        if (showInv) { showInv = false; return true }
+        if (showInv) {
+            if (invJoyRect.contains(e.x, e.y) && joyOwned) {
+                joyOn = !joyOn
+                saveGame()
+                showMsg(if (joyOn) "Joystick active !" else "Joystick desactive.")
+            } else {
+                showInv = false
+            }
+            return true
+        }
+        if (miniPlate >= 0) {
+            val long = System.currentTimeMillis() - downTime > 400
+            var hit = false
+            for (c in 0..8) if (miniRects[c].contains(e.x, e.y)) { miniTap(c, long); hit = true }
+            if (!hit && !long) miniPlate = -1
+            return true
+        }
 
         if (state == TITLE) {
             when {

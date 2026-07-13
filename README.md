@@ -24,6 +24,17 @@ que par **le puits de droite** : il n'existe donc qu'**une seule solution**, et 
 la caisse **la plus profonde en premier**. Les 4 rangées → la **trappe s'ouvre** = victoire.
 En cas de blocage : Menu ☰ → *Réinitialiser les caisses*.
 
+## Nouveautés
+- **Mini-démineurs 3×3** : chaque dalle de pression de la salle du coffre est recouverte ;
+  touchez-la pour ouvrir sa grille 3×3 (2 mines) et la découvrir avant d'y pousser un bloc.
+- **Cœurs cachés** ❤️ : sous certaines dalles de la grande salle ; marchez dessus = +20 PV.
+- **Sokoban durci** : caisses dispersées + murs intérieurs, la colonne d'accès impose l'ordre.
+- **Coffre du joystick** : apparaît quand le sokoban est résolu. Le joystick s'active depuis
+  l'inventaire et permet de déplacer le héros directement (il pousse aussi les caisses).
+- **Sous-sol** : la trappe mène à un couloir puis à la salle de l'énigme des couleurs (Simon) :
+  touchez le socle, mémorisez les couleurs, marchez-les dans l'ordre. Réussite → un coffre et
+  deux portes apparaissent. La porte gauche mène à l'étoile (victoire), la droite est scellée.
+
 ## Écran de présentation
 Nom du héros · Difficulté (FACILE / NORMAL / DIFFICILE) · **VIE ILLIMITÉE** (mode test) ·
 Nouvelle partie · Continuer (sauvegarde automatique).

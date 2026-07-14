@@ -2373,7 +2373,56 @@ class GameView(context: Context) : View(context) {
         drawMobs(canvas, w)
         drawWalkers(canvas, w)
         drawHero(canvas, w)
+        drawIslandLife(canvas, w)
         drawInteriorMask(canvas, w)
+    }
+
+    /** Mouettes qui planent au-dessus de la mer, papillons sur la place. */
+    private fun drawIslandLife(canvas: Canvas, w: Float) {
+        if (camY < world.iy0 - 6) return
+        // Les mouettes
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.06f
+        paint.strokeCap = Paint.Cap.ROUND
+        for (j in 0..2) {
+            val t2 = time * (0.09f + 0.02f * j) + j * 2.1f
+            val bx = world.wid / 2f + cos(t2) * (world.wid / 2f - 5f + j * 1.5f)
+            val by = world.iy0 + 17f + sin(t2 * 1.35f) * 12.5f
+            val gxp = sx(bx, w)
+            val gyp = sy(by)
+            if (gyp < boardTop || gyp > boardBottom) continue
+            val flap = sin(time * 7f + j * 2f) * tile * 0.11f
+            // ombre de la mouette sur l'eau, un peu plus bas
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(35, 0, 0, 0)
+            canvas.drawOval(gxp - tile * 0.12f, gyp + tile * 0.75f, gxp + tile * 0.12f, gyp + tile * 0.85f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.color = Color.argb(225, 246, 249, 252)
+            canvas.drawLine(gxp - tile * 0.17f, gyp - flap, gxp, gyp + tile * 0.05f, paint)
+            canvas.drawLine(gxp, gyp + tile * 0.05f, gxp + tile * 0.17f, gyp - flap, paint)
+        }
+        paint.style = Paint.Style.FILL
+        paint.strokeCap = Paint.Cap.BUTT
+        // Les papillons
+        for (j in 0..3) {
+            val ax = world.cx(world.islandPortal) - 6.5f + j * 4.4f
+            val ay = world.cy(world.islandPortal) + 3f + (j % 2) * 6.5f
+            val bx = ax + sin(time * (0.5f + 0.1f * j) + j) * 2.3f
+            val by = ay + sin(time * (0.7f + 0.13f * j) * 1.3f + j * 2f) * 1.7f
+            val px2 = sx(bx, w)
+            val py2 = sy(by)
+            if (py2 < boardTop || py2 > boardBottom) continue
+            val wing = 0.35f + 0.65f * abs(sin(time * 9f + j * 1.7f))
+            paint.color = Color.argb(45, 0, 0, 0)
+            canvas.drawOval(px2 - tile * 0.06f, py2 + tile * 0.22f, px2 + tile * 0.06f, py2 + tile * 0.28f, paint)
+            val cols = intArrayOf(
+                Color.rgb(255, 170, 60), Color.rgb(125, 185, 255),
+                Color.rgb(255, 120, 175), Color.rgb(205, 230, 90)
+            )
+            paint.color = cols[j]
+            canvas.drawOval(px2 - tile * 0.1f * wing, py2 - tile * 0.055f, px2, py2 + tile * 0.055f, paint)
+            canvas.drawOval(px2, py2 - tile * 0.055f, px2 + tile * 0.1f * wing, py2 + tile * 0.055f, paint)
+        }
     }
 
     /**
@@ -2517,11 +2566,29 @@ class GameView(context: Context) : View(context) {
         canvas.restoreToCount(lagoonLayer)
         terPaint.color = Color.BLACK
 
+        // 2b. RELIEF : la silhouette de l'ile, decalee vers le sud-est, projetee
+        // sur l'eau. Le sable la recouvre ensuite : seul un lisere d'ombre depasse
+        // cote mer -> l'ile semble surelevee au-dessus des flots.
+        val isLand = { t: Int ->
+            t == World.TER_SAND || t == World.TER_SHORE || t == World.TER_GRASS ||
+                    t == World.TER_DIRT || t == World.TER_EARTH
+        }
+        val reliefLayer = canvas.saveLayerAlpha(
+            sx(x0.toFloat(), w), sy(y0.toFloat()),
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 60
+        )
+        canvas.save()
+        canvas.translate(tile * 0.20f, tile * 0.30f)
+        terPaint.shader = null
+        terPaint.color = Color.rgb(4, 14, 26)
+        layer(isLand, 2, 0.22f, 0.45f, 202)
+        canvas.restore()
+        canvas.restoreToCount(reliefLayer)
+        terPaint.color = Color.BLACK
+
         // 3. Le sable (tout ce qui n'est pas eau)
         useTer(sSand, 1.4f)
-        layer({ it == World.TER_SAND || it == World.TER_SHORE || it == World.TER_GRASS ||
-                it == World.TER_DIRT || it == World.TER_EARTH },
-            2, 0.22f, 0.45f, 202)
+        layer(isLand, 2, 0.22f, 0.45f, 202)
         terPaint.shader = null
 
         // 4. L'ecume du rivage (bande animee, par-dessus le sable)
@@ -2545,10 +2612,66 @@ class GameView(context: Context) : View(context) {
             2, 0.2f, 0.42f, 303)
         terPaint.shader = null
 
+        // 5b. Nuances : des ombrages doux et quelques touches de lumiere
+        for (gy in y0..y1) for (gx in x0..x1) {
+            if (terOf(gx, gy) != World.TER_GRASS) continue
+            val h1 = hash01(gx, gy, 777)
+            if (h1 < 0.16f) {
+                paint.color = Color.argb(20, 18, 42, 8)
+                canvas.drawCircle(
+                    sx(gx + 0.25f + 0.5f * hash01(gx, gy, 778), w),
+                    sy(gy + 0.25f + 0.5f * hash01(gx, gy, 779)),
+                    tile * (0.7f + 0.5f * h1), paint
+                )
+            } else if (h1 > 0.90f) {
+                paint.color = Color.argb(13, 235, 240, 150)
+                canvas.drawCircle(
+                    sx(gx + 0.3f + 0.4f * hash01(gx, gy, 780), w),
+                    sy(gy + 0.3f + 0.4f * hash01(gx, gy, 781)),
+                    tile * 0.8f, paint
+                )
+            }
+        }
+
         // 6. Les chemins de terre (lobes plus petits : sentier aux bords ronges)
         useTer(sEarth, 1.1f)
         layer({ it == World.TER_DIRT || it == World.TER_EARTH }, 2, 0.14f, 0.3f, 404)
         terPaint.shader = null
+
+        // 7. Des etincelles de soleil scintillent sur l'eau
+        for (gy in y0..y1) for (gx in x0..x1) {
+            val t2 = terOf(gx, gy)
+            if (t2 != World.TER_WATER && t2 != World.TER_SHALLOW) continue
+            val k = hash01(gx, gy, 555)
+            if (k > 0.30f) continue
+            val ph = (time * (0.35f + k) + k * 11f) % 1f
+            if (ph < 0.22f) {
+                val a2 = sin(ph / 0.22f * 3.1416f).coerceIn(0f, 1f)
+                paint.color = Color.argb((160 * a2).toInt(), 255, 255, 255)
+                canvas.drawCircle(
+                    sx(gx + 0.2f + 0.6f * hash01(gx, gy, 556), w),
+                    sy(gy + 0.2f + 0.6f * hash01(gx, gy, 557)),
+                    tile * (0.045f + 0.05f * a2), paint
+                )
+            }
+        }
+
+        // 8. Les ombres des nuages derivent lentement sur l'ile
+        val clipL = sx(x0.toFloat(), w)
+        val clipT = sy(y0.toFloat())
+        val clipR = sx((x1 + 1).toFloat(), w)
+        val clipB = sy((y1 + 1).toFloat())
+        canvas.save()
+        canvas.clipRect(clipL, clipT, clipR, clipB)
+        for (j in 0..2) {
+            val cwx = ((time * 0.45f + j * 19f) % (world.wid + 26f)) - 13f
+            val cwy = world.iy0 + 6f + j * 10f + sin(time * 0.07f + j * 2f) * 2.5f
+            paint.color = Color.argb(18, 8, 12, 6)
+            canvas.drawCircle(sx(cwx, w), sy(cwy), tile * 4.6f, paint)
+            canvas.drawCircle(sx(cwx + 2.6f, w), sy(cwy + 1.3f), tile * 3.1f, paint)
+            canvas.drawCircle(sx(cwx - 2.2f, w), sy(cwy + 0.8f), tile * 2.6f, paint)
+        }
+        canvas.restore()
     }
 
     /** Ce qui se pose SUR le terrain de l'ile : decor, portes, portail. */
@@ -2599,12 +2722,25 @@ class GameView(context: Context) : View(context) {
                 3 -> -tile * 0.08f
                 else -> -tile * 0.06f
             }
-            paint.color = Color.argb(65, 0, 0, 0)
+            // Ombre portee (soleil au nord-ouest), taille selon l'objet
+            val shw = when (dt) { 0 -> 0.52f; 1 -> 0.22f; 2 -> 0.40f; else -> 0.58f } * tile
+            val sha = when (dt) { 0 -> 70; 1 -> 42; 2 -> 62; else -> 66 }
+            paint.color = Color.argb(sha, 0, 0, 0)
             canvas.drawOval(
-                rect.centerX() - tile * 0.24f, rect.centerY() + tile * 0.16f,
-                rect.centerX() + tile * 0.24f, rect.centerY() + tile * 0.32f, paint
+                rect.centerX() - shw + tile * 0.12f, rect.centerY() + tile * 0.14f,
+                rect.centerX() + shw + tile * 0.12f, rect.centerY() + tile * 0.34f, paint
             )
-            drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
+            if (dt == 0 || dt == 1) {
+                // La brise : les arbres oscillent doucement, les plantes davantage
+                val ang = sin(time * (if (dt == 0) 0.9f else 1.7f) + gx * 0.7f + gy * 0.9f) *
+                        (if (dt == 0) 1.3f else 5f)
+                canvas.save()
+                canvas.rotate(ang, rect.centerX(), rect.centerY() + tile * 0.34f)
+                drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
+                canvas.restore()
+            } else {
+                drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
+            }
         }
 
         // Les distributeurs de 8.6
@@ -2627,10 +2763,15 @@ class GameView(context: Context) : View(context) {
         // Les batiments : dessines sur leur case d'ancrage
         val hn = world.houses[i]
         if (hn != null) {
-            paint.color = Color.argb(70, 0, 0, 0)
+            paint.color = Color.argb(60, 0, 0, 0)
             canvas.drawOval(
-                rect.centerX() - tile * 1.3f, rect.centerY() + tile * 0.25f,
-                rect.centerX() + tile * 1.3f, rect.centerY() + tile * 0.6f, paint
+                rect.centerX() - tile * 1.5f + tile * 0.15f, rect.centerY() + tile * 0.2f,
+                rect.centerX() + tile * 1.5f + tile * 0.15f, rect.centerY() + tile * 0.66f, paint
+            )
+            paint.color = Color.argb(45, 0, 0, 0)
+            canvas.drawOval(
+                rect.centerX() - tile * 1.1f + tile * 0.2f, rect.centerY() + tile * 0.3f,
+                rect.centerX() + tile * 1.1f + tile * 0.2f, rect.centerY() + tile * 0.58f, paint
             )
             val big = hn == 5
             drawSprite(

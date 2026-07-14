@@ -72,6 +72,11 @@ class World(
     val houseFloor = HashMap<Int, Int>()
     /** Graffitis sur les murs : case -> numero de tag (1..15). */
     val tags = HashMap<Int, Int>()
+    /** Distributeurs de boisson : case -> 1 (dore) ou 2 (bleu). */
+    val vendors = HashMap<Int, Int>()
+    /** La bombe de peinture, cachee dans le squat. */
+    var sprayCell = -1
+    var sprayTaken = false
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val petSpawns = ArrayList<Pair<Int, Int>>()
@@ -454,6 +459,16 @@ class World(
         buildHouse(1, px - 4, vy)            // chaumiere
         buildHouse(2, px + 4, vy)            // forge
         buildHouse(3, px + 7, vy + 5)        // la maison anarchiste, a l'ecart
+
+        // Les deux distributeurs de 8.6, de part et d'autre du portail
+        val py = cy(islandPortal)
+        for ((k, dx) in listOf(-2, 2).withIndex()) {
+            val c = idx(px + dx, py)
+            if (inside(px + dx, py) && grid[c] == FLOOR && terrain[c] == TER_GRASS) {
+                vendors[c] = k + 1
+                grid[c] = WALL
+            }
+        }
     }
 
     private fun buildHouse(n: Int, x: Int, y: Int) {
@@ -494,8 +509,9 @@ class World(
         houseExit[exitCell] = n
         houseEntry[n] = exitCell
 
-        // Le squat anarchiste : des graffitis partout sur les murs
+        // Le squat anarchiste : des graffitis partout sur les murs, et la bombe !
         if (n == 3) {
+            sprayCell = idx(rx0 + 9, ry0 + 2)
             val wallTags = listOf(
                 Pair(rx0 + 1, ry0 - 1), Pair(rx0 + 4, ry0 - 1), Pair(rx0 + 7, ry0 - 1),
                 Pair(rx0 + 10, ry0 - 1), Pair(rx0 - 1, ry0 + 2), Pair(rx0 + 12, ry0 + 2),

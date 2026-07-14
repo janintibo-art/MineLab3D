@@ -207,7 +207,9 @@ object VillagerAI {
             "Le systeme du donjon nous exploite, reveille-toi !",
             "J'ai tague le sous-sol. Ils ont rien vu.",
             "Les coffres appartiennent a tout le monde !",
-            "Ni dieu, ni maitre, ni mini-demineur."
+            "Ni dieu, ni maitre, ni mini-demineur.",
+            "Ma bombe Rebel Ink traine chez moi, sers-toi.",
+            "Le distributeur ? 2,50 la canette. L'arnaque."
         )
     ) }
 

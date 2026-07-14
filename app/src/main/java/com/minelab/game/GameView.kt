@@ -126,6 +126,7 @@ class GameView(context: Context) : View(context) {
     private var pendingTorch = -1
     private var pendingDoor3 = false
     private var pendingRune = false
+    private var pendingVendor = -1
 
     private var hp = 100
     private var disarmed = 0
@@ -138,6 +139,9 @@ class GameView(context: Context) : View(context) {
     // Joystick
     private var swordOwned = false
     private var lighterOwned = false
+    private var sprayOwned = false
+    private var sprayNext = 1
+    private val vendorsUsed = HashSet<Int>()
     private var energyCount = 0
     private var joyOwned = false
     private var joyOn = false
@@ -291,6 +295,9 @@ class GameView(context: Context) : View(context) {
         return sHFloors[n]!!
     }
 
+    private val sVendorGold: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vendor_gold)
+    private val sVendorBlue: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vendor_blue)
+    private val sSpray: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.spray)
     private val sHouseNew: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
         BitmapFactory.decodeResource(resources, R.drawable.house_forge),
@@ -495,6 +502,7 @@ class GameView(context: Context) : View(context) {
         flagsLeft = world.totalMines
         joyOwned = false; joyOn = false
         swordOwned = false; lighterOwned = false; energyCount = 0
+        sprayOwned = false; sprayNext = 1; vendorsUsed.clear()
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -579,6 +587,11 @@ class GameView(context: Context) : View(context) {
         e.putInt("wave", world.wave)
         e.putBoolean("boss", world.bossDefeated)
         e.putBoolean("ile", world.islandVisited)
+        e.putBoolean("spray", sprayOwned)
+        e.putBoolean("sprayT", world.sprayTaken)
+        e.putInt("sprayN", sprayNext)
+        e.putString("vused", setToStr(vendorsUsed))
+        e.putString("wtags", world.tags.entries.joinToString(";") { "${it.key}:${it.value}" })
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -653,6 +666,21 @@ class GameView(context: Context) : View(context) {
         world.wave = prefs.getInt("wave", 0)
         if (prefs.getBoolean("boss", false)) world.bossVictory()
         world.islandVisited = prefs.getBoolean("ile", false)
+        sprayOwned = prefs.getBoolean("spray", false)
+        world.sprayTaken = prefs.getBoolean("sprayT", false)
+        sprayNext = prefs.getInt("sprayN", 1)
+        vendorsUsed.clear(); vendorsUsed.addAll(strToSet(prefs.getString("vused", "")))
+        val wt = prefs.getString("wtags", "") ?: ""
+        if (wt.isNotBlank()) {
+            for (part in wt.split(";")) {
+                val f = part.split(":")
+                if (f.size == 2) {
+                    val c = f[0].trim().toIntOrNull()
+                    val v = f[1].trim().toIntOrNull()
+                    if (c != null && v != null) world.tags[c] = v
+                }
+            }
+        }
         if (prefs.getBoolean("d3o", false)) world.openDoor3()
         mobs.clear()
         val ms = prefs.getString("mobs", "") ?: ""
@@ -885,6 +913,17 @@ class GameView(context: Context) : View(context) {
             } else if (pendingTorch >= 0) {
                 val t = pendingTorch; pendingTorch = -1
                 lightTorch(t)
+            } else if (pendingVendor >= 0) {
+                val v = pendingVendor; pendingVendor = -1
+                if (v in vendorsUsed) {
+                    showMsg("Plus de monnaie... Le distributeur affiche 2,50.")
+                } else {
+                    vendorsUsed.add(v)
+                    energyCount++
+                    audio.play("chest")
+                    showMsg("CLONK ! Une canette bien fraiche tombe. (inventaire)")
+                    saveGame()
+                }
             } else if (pendingRune) {
                 pendingRune = false
                 if (world.lightsSolved) showMsg("La porte est deja ouverte.")
@@ -1018,6 +1057,14 @@ class GameView(context: Context) : View(context) {
     private fun onArrive() {
         val i = world.idx(hx, hy)
 
+        // La bombe Rebel Ink, dans le squat
+        if (i == world.sprayCell && !world.sprayTaken) {
+            world.sprayTaken = true
+            sprayOwned = true
+            audio.play("pickup")
+            showMsg("Une bombe REBEL INK ! Touchez un mur proche pour taguer.")
+            saveGame()
+        }
         // Le briquet, au centre de la salle des torches
         if (i == world.lighter && !world.lighterTaken) {
             world.lighterTaken = true
@@ -1272,6 +1319,7 @@ class GameView(context: Context) : View(context) {
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
         pendingMini = -1; pendingTorch = -1; pendingDoor3 = false; pendingRune = false
+        pendingVendor = -1
     }
 
     private fun hurt(n: Int, why: String) {
@@ -1605,7 +1653,27 @@ class GameView(context: Context) : View(context) {
             clearPendings(); pendingTorch = i
             return
         }
-        if (!world.isFloor(gx, gy)) { showMsg("C'est un mur."); return }
+        // Un distributeur de 8.6 ?
+        if (world.vendors.containsKey(i)) {
+            if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du distributeur."); return }
+            clearPendings(); pendingVendor = i
+            return
+        }
+        if (!world.isFloor(gx, gy)) {
+            // Taguer le mur avec la bombe (murs du donjon uniquement, a portee)
+            if (sprayOwned && world.terrain[i] == World.TER_NONE &&
+                abs(gx - hx) <= 1 && abs(gy - hy) <= 1
+            ) {
+                world.tags[i] = sprayNext
+                sprayNext = sprayNext % 15 + 1
+                audio.play("torch")
+                showMsg("Pschhht ! Kaos serait fier.")
+                saveGame()
+                return
+            }
+            showMsg(if (sprayOwned) "Trop loin pour taguer. Collez-vous au mur !" else "C'est un mur.")
+            return
+        }
 
         if (i == world.altar) {
             if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du socle."); return }
@@ -2157,6 +2225,13 @@ class GameView(context: Context) : View(context) {
             terPaint.shader = null
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
+            if (i == world.sprayCell && !world.sprayTaken) {
+                val bob = sin(time * 3f) * tile * 0.05f
+                val pulse = 0.5f + 0.5f * sin(time * 4f)
+                paint.color = Color.argb((45 + 60 * pulse).toInt(), 255, 80, 200)
+                canvas.drawCircle(rect.centerX(), rect.centerY() + bob, tile * 0.42f, paint)
+                drawSprite(canvas, sSpray, rect.centerX(), rect.centerY() + bob - tile * 0.1f, tile * 0.85f)
+            }
             if (world.houseExit.containsKey(i)) drawHouseDoor(canvas)
             return
         }
@@ -2183,6 +2258,23 @@ class GameView(context: Context) : View(context) {
             drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
         }
 
+        // Les distributeurs de 8.6
+        val vd = world.vendors[i]
+        if (vd != null) {
+            paint.color = Color.argb(70, 0, 0, 0)
+            canvas.drawOval(
+                rect.centerX() - tile * 0.4f, rect.centerY() + tile * 0.28f,
+                rect.centerX() + tile * 0.4f, rect.centerY() + tile * 0.46f, paint
+            )
+            val glow = 0.5f + 0.5f * sin(time * 2.5f + vd)
+            paint.color = if (vd == 1) Color.argb((30 + 30 * glow).toInt(), 255, 200, 60)
+            else Color.argb((30 + 30 * glow).toInt(), 80, 140, 255)
+            canvas.drawCircle(rect.centerX(), rect.centerY() - tile * 0.3f, tile * 0.85f, paint)
+            drawSprite(
+                canvas, if (vd == 1) sVendorGold else sVendorBlue,
+                rect.centerX(), rect.centerY() - tile * 0.55f, tile * 1.75f
+            )
+        }
         // Les batiments : dessines sur leur case d'ancrage
         val hn = world.houses[i]
         if (hn != null) {
@@ -2897,6 +2989,7 @@ class GameView(context: Context) : View(context) {
             arrayOf(sKey, "Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
             arrayOf(sSwordV, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
             arrayOf(sLighter, "Briquet", if (lighterOwned) "1" else "0", Color.rgb(200, 210, 225)),
+            arrayOf(sSpray, "Bombe Rebel Ink", if (sprayOwned) "taguez les murs !" else "0", Color.rgb(240, 90, 200)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),

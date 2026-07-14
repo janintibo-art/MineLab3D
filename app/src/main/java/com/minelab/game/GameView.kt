@@ -288,23 +288,14 @@ class GameView(context: Context) : View(context) {
     }
 
     private val walkers = ArrayList<Walker>()
+    private var villagers: List<VillagerAI.Perso> = emptyList()
+    private val npcRnd = Random(1234)
     private var dialogue = ""
+    private var dialogueName = ""
     private var dialogueT = 0f
     private var dialogueX = 0f
     private var dialogueY = 0f
 
-    private val NPC_LINES = arrayOf(
-        "Bienvenue sur l'ile, aventurier !",
-        "On raconte qu'un donjon dort sous nos pieds...",
-        "Tu viens du portail ? Personne n'en revient, d'habitude.",
-        "Les mines ? Mon grand-pere en a desamorce des centaines.",
-        "Le forgeron cherche du minerai. Va le voir !",
-        "Belle epee. Tu l'as trouvee dans le coffre-fort ?",
-        "Attention aux monstres la-dessous.",
-        "Ma maison est ouverte, entre donc !",
-        "La mer est calme aujourd'hui.",
-        "Un jour, j'irai voir ce fameux boss. Un jour..."
-    )
     private var attackCd = 0f
     private var attackAnim = 0f
 
@@ -739,6 +730,24 @@ class GameView(context: Context) : View(context) {
 
         updateMobs(dt)
         updateWalkers(dt)
+        // Les bavards marmonnent parfois tout seuls
+        if (dialogueT <= 0f && time % 7f < dt && villagers.isNotEmpty()) {
+            val near = walkers.filter { it.kind == 0 && hypot(it.x - fx, it.y - fy) < 6f && it.talk <= 0f }
+            if (near.isNotEmpty()) {
+                val w2 = near[npcRnd.nextInt(near.size)]
+                val p2 = villagers[(w2.id - 1) % villagers.size]
+                val line = VillagerAI.marmonner(p2, npcRnd)
+                if (line != null) {
+                    dialogue = line
+                    dialogueName = p2.nom
+                    dialogueX = w2.x
+                    dialogueY = w2.y
+                    val dur = (2f + line.length * 0.04f).coerceAtMost(4.5f)
+                    dialogueT = dur
+                    w2.talk = dur
+                }
+            }
+        }
 
         if (pathStep < path.size) {
             walkPhase += dt * 12f
@@ -1063,6 +1072,7 @@ class GameView(context: Context) : View(context) {
 
     private fun initWalkers() {
         walkers.clear()
+        villagers = VillagerAI.creerVillageois(world.seed)
         for ((cell, id) in world.npcSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 0, id))
         }
@@ -1073,6 +1083,15 @@ class GameView(context: Context) : View(context) {
 
     private fun updateWalkers(dt: Float) {
         if (walkers.isEmpty()) return
+        // Bousculade : le heros traverse un villageois grognon -> il le retient
+        for (w in walkers) {
+            if (w.kind != 0) continue
+            if (hypot(w.x - fx, w.y - fy) < 0.55f && w.talk <= 0f && dialogueT <= 0f) {
+                val p = villagers[(w.id - 1) % villagers.size]
+                VillagerAI.bousculer(p)
+                if (p.grognon > 0.5f) talkTo(w)
+            }
+        }
         // On n'anime que ce qui est proche du heros
         for (w in walkers) {
             w.talk = (w.talk - dt).coerceAtLeast(0f)
@@ -1111,12 +1130,21 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun talkTo(w: Walker) {
-        w.talk = 3.2f
-        dialogueT = 3.2f
         dialogueX = w.x
         dialogueY = w.y
-        dialogue = if (w.kind == 0) NPC_LINES[(w.id - 1) % NPC_LINES.size]
-        else listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !")[(w.id - 1) % 5]
+        if (w.kind == 0) {
+            val p = villagers[(w.id - 1) % villagers.size]
+            dialogue = VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+            dialogueName = p.nom
+        } else {
+            dialogue = listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !",
+                "Groin groin !", "Hihan !", "Couac !", "Piou piou !", "Sniff sniff...")[(w.id - 1) % 10]
+            dialogueName = ""
+        }
+        // La bulle reste plus longtemps si la phrase est longue
+        val dur = (2.2f + dialogue.length * 0.045f).coerceAtMost(5.5f)
+        w.talk = dur
+        dialogueT = dur
         // Le villageois se tourne vers le heros
         val dx = fx - w.x
         val dy = fy - w.y
@@ -2134,10 +2162,11 @@ class GameView(context: Context) : View(context) {
     private fun drawDialogue(canvas: Canvas, w: Float, h: Float) {
         if (dialogueT <= 0f) return
         val cxx = sx(dialogueX, w)
-        val cyy = sy(dialogueY) - tile * 0.75f
+        val cyy = sy(dialogueY) - tile * 0.95f
         paint.textSize = h * 0.019f
-        val tw = paint.measureText(dialogue) + h * 0.03f
-        val th = h * 0.05f
+        val hasName = dialogueName.isNotEmpty()
+        val tw = maxOf(paint.measureText(dialogue), paint.measureText(dialogueName)) + h * 0.03f
+        val th = if (hasName) h * 0.075f else h * 0.05f
         tmpRect.set(cxx - tw / 2f, cyy - th, cxx + tw / 2f, cyy)
         paint.color = Color.argb(240, 250, 246, 235)
         canvas.drawRoundRect(tmpRect, th * 0.3f, th * 0.3f, paint)
@@ -2153,9 +2182,20 @@ class GameView(context: Context) : View(context) {
         p.close()
         paint.color = Color.argb(240, 250, 246, 235)
         canvas.drawPath(p, paint)
-        paint.color = Color.rgb(40, 34, 28)
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(dialogue, cxx, cyy - th * 0.34f, paint)
+        if (hasName) {
+            paint.color = Color.rgb(150, 100, 40)
+            paint.isFakeBoldText = true
+            paint.textSize = h * 0.015f
+            canvas.drawText(dialogueName, cxx, cyy - th + h * 0.022f, paint)
+            paint.isFakeBoldText = false
+            paint.textSize = h * 0.019f
+            paint.color = Color.rgb(40, 34, 28)
+            canvas.drawText(dialogue, cxx, cyy - h * 0.014f, paint)
+        } else {
+            paint.color = Color.rgb(40, 34, 28)
+            canvas.drawText(dialogue, cxx, cyy - th * 0.34f, paint)
+        }
     }
 
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {

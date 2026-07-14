@@ -85,6 +85,9 @@ class World(
     var dungeon2Revealed = false
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
+    val punkSpawns = ArrayList<Pair<Int, Int>>()
+    var pierreCell = -1
+    var frankiCell = -1
     val petSpawns = ArrayList<Pair<Int, Int>>()
     var islandPortal = -1
     var islandVisited = false
@@ -432,6 +435,7 @@ class World(
 
     /** Arbres, buissons, rochers sur l'ile ; barques echouees sur la plage. */
     private fun placeDecor() {
+        plantForests()
         val top = iy0
         for (y in top until top + 34) {
             for (x in 0 until wid) {
@@ -446,9 +450,8 @@ class World(
                 val roll = rnd.nextInt(100)
                 when (t) {
                     TER_GRASS -> when {
-                        roll < 7 -> { decor[i] = Pair(0, 1 + rnd.nextInt(29)); grid[i] = WALL }
-                        roll < 13 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
-                        roll < 15 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
+                        roll < 6 -> decor[i] = Pair(1, 1 + rnd.nextInt(11))
+                        roll < 8 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
                     }
                     TER_SAND -> when {
                         roll < 3 -> { decor[i] = Pair(2, 1 + rnd.nextInt(9)); grid[i] = WALL }
@@ -482,6 +485,36 @@ class World(
         buildHouse(2, px + 4, vy)            // forge
         buildHouse(3, px + 7, vy + 5)        // la maison anarchiste, a l'ecart
         buildHouse(4, px - 7, vy + 5)        // la cabane d'alchimiste, de l'autre cote
+        buildHouse(5, px + 9, vy)            // le PUNK CLUB, en bordure nord-est
+
+        // Les punks trainent devant le club... et dedans
+        for ((k, sp) in listOf(
+            Pair(px + 7, vy + 2), Pair(px + 11, vy + 2),
+            Pair(px + 10, vy + 3), Pair(px + 8, vy - 2)
+        ).withIndex()) {
+            val (x, y) = sp
+            if (inside(x, y) && grid[idx(x, y)] == FLOOR && !houseMats.containsKey(idx(x, y))) {
+                punkSpawns.add(Pair(idx(x, y), k + 1))
+            }
+        }
+        for (k in 0..2) {
+            val c = interiorSpot(5, k)
+            if (c >= 0) punkSpawns.add(Pair(c, k + 5))
+        }
+
+        // Pierre et Franki, les pecheurs, sur la plage au sud-ouest
+        outer@ for (y in iy0 + 27 downTo iy0 + 22) {
+            for (x in 7..16) {
+                val i = idx(x, y)
+                if (grid[i] == FLOOR && terrain[i] == TER_SAND) {
+                    if (pierreCell < 0) { pierreCell = i }
+                    else if (frankiCell < 0 && kotlin.math.abs(cx(i) - cx(pierreCell)) >= 2) {
+                        frankiCell = i
+                        break@outer
+                    }
+                }
+            }
+        }
 
         // Les deux distributeurs de 8.6, de part et d'autre du portail
         val py = cy(islandPortal)
@@ -521,6 +554,7 @@ class World(
             2 -> 3        // forge : sol de pierre
             3 -> 2        // maison anarchiste : sol sombre et crade
             4 -> 5        // cabane d'alchimiste
+            5 -> 6        // le punk club
             else -> 1     // chaumiere : parquet
         }
         for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {
@@ -545,6 +579,56 @@ class World(
             for ((k, sp) in wallTags.withIndex()) {
                 val (x, y) = sp
                 if (inside(x, y)) tags[idx(x, y)] = 1 + (k * 2 + seed.toInt().and(7)) % 15
+            }
+        }
+    }
+
+    /** Plante un arbre (1..6) si la case est de l'herbe libre. */
+    private fun tryTree(x: Int, y: Int) {
+        if (!inside(x, y)) return
+        val i = idx(x, y)
+        if (grid[i] != FLOOR || terrain[i] != TER_GRASS) return
+        if (houses.containsKey(i) || houseMats.containsKey(i) || decor.containsKey(i)) return
+        if (i == islandPortal || i == dungeon2Cell || vendors.containsKey(i)) return
+        decor[i] = Pair(0, 1 + rnd.nextInt(6))
+        grid[i] = WALL
+    }
+
+    /**
+     * Les arbres poussent en BOSQUETS (5 clairieres d'arbres groupes),
+     * et le squat de Kaos est niche au coeur d'une petite foret.
+     */
+    private fun plantForests() {
+        val top = iy0
+        // La foret du squat (maison 3, ancre px+7 / vy+5)
+        val ax = cx(islandPortal) + 7
+        val ay = cy(islandPortal) + 7 + 5
+        for (dy in -3..3) for (dx in -3..3) {
+            val ring = maxOf(kotlin.math.abs(dx), kotlin.math.abs(dy))
+            if (ring < 2) continue                               // la maison
+            if (dx in -1..1 && dy in 2..3) continue              // le passage vers la porte
+            val p = if (ring == 2) 70 else 45
+            if (rnd.nextInt(100) < p) tryTree(ax + dx, ay + dy)
+        }
+        // Les bosquets
+        repeat(5) {
+            var gx = -1
+            var gy = -1
+            for (attempt in 0 until 24) {
+                val tx = 3 + rnd.nextInt(wid - 6)
+                val ty = top + 3 + rnd.nextInt(28)
+                if (!inside(tx, ty)) continue
+                val i = idx(tx, ty)
+                if (terrain[i] != TER_GRASS || grid[i] != FLOOR) continue
+                if (inVillage(tx, ty)) continue
+                gx = tx; gy = ty
+                break
+            }
+            if (gx < 0) return@repeat
+            for (dy in -2..2) for (dx in -2..2) {
+                val ring = maxOf(kotlin.math.abs(dx), kotlin.math.abs(dy))
+                val p = when (ring) { 0 -> 90; 1 -> 55; else -> 25 }
+                if (rnd.nextInt(100) < p && !inVillage(gx + dx, gy + dy)) tryTree(gx + dx, gy + dy)
             }
         }
     }

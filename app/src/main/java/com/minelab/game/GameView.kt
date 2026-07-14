@@ -143,6 +143,11 @@ class GameView(context: Context) : View(context) {
     private var sprayNext = 1
     private var shroomCount = 0
     private var spraysDone = 0
+    private var metPierre = false
+    private var rodOwned = false
+    private var fishCasts = 0
+    private var slipOwned = false
+    private var ticketOwned = false
     private var tripT = 0f
     private val vendorsUsed = HashSet<Int>()
     private var energyCount = 0
@@ -250,6 +255,16 @@ class GameView(context: Context) : View(context) {
     private val sSand: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_sand)
     private val sWater: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_water)
     private val sFloorWoodHouse: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
+    private val sPunk: Array<Array<Bitmap>> = Array(7) { i ->
+        val id = i + 1
+        arrayOf(bmp("punk${id}d"), bmp("punk${id}u"), bmp("punk${id}l"), bmp("punk${id}r"))
+    }
+    private val sFisher: Array<Array<Bitmap>> = Array(2) { i ->
+        val id = i + 1
+        arrayOf(bmp("fisher${id}d"), bmp("fisher${id}u"), bmp("fisher${id}l"), bmp("fisher${id}r"))
+    }
+    private val sSlip: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.slip)
+    private val sRod: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.rod)
     private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
         val id = i + 1
         arrayOf(
@@ -306,7 +321,8 @@ class GameView(context: Context) : View(context) {
         BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
         BitmapFactory.decodeResource(resources, R.drawable.house_forge),
         BitmapFactory.decodeResource(resources, R.drawable.house_anarchist),
-        BitmapFactory.decodeResource(resources, R.drawable.house_alchemist)
+        BitmapFactory.decodeResource(resources, R.drawable.house_alchemist),
+        BitmapFactory.decodeResource(resources, R.drawable.house_club)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -455,7 +471,7 @@ class GameView(context: Context) : View(context) {
     /** La zone musicale courante. */
     private fun currentZone(): Int {
         if (state == TITLE) return 0
-        if (world.isInterior(hx, hy)) return 9
+        if (world.isInterior(hx, hy)) return if (world.interiorOf(hx, hy) == 5) 10 else 9
         if (world.isIsland(hx, hy)) return if (world.inVillage(hx, hy)) 9 else 8
         if (mobs.any { it.hp > 0 }) return 7
         return when {
@@ -510,6 +526,7 @@ class GameView(context: Context) : View(context) {
         swordOwned = false; lighterOwned = false; energyCount = 0
         sprayOwned = false; sprayNext = 1; vendorsUsed.clear()
         shroomCount = 0; spraysDone = 0; tripT = 0f
+        metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -601,6 +618,11 @@ class GameView(context: Context) : View(context) {
         e.putString("wtags", world.tags.entries.joinToString(";") { "${it.key}:${it.value}" })
         e.putInt("shrooms", shroomCount)
         e.putInt("sprayed", spraysDone)
+        e.putBoolean("metP", metPierre)
+        e.putBoolean("rod", rodOwned)
+        e.putInt("casts", fishCasts)
+        e.putBoolean("slip", slipOwned)
+        e.putBoolean("ticket", ticketOwned)
         e.putBoolean("shroomT", world.shroomTaken)
         e.putBoolean("d2r", world.dungeon2Revealed)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
@@ -683,6 +705,11 @@ class GameView(context: Context) : View(context) {
         vendorsUsed.clear(); vendorsUsed.addAll(strToSet(prefs.getString("vused", "")))
         shroomCount = prefs.getInt("shrooms", 0)
         spraysDone = prefs.getInt("sprayed", 0)
+        metPierre = prefs.getBoolean("metP", false)
+        rodOwned = prefs.getBoolean("rod", false)
+        fishCasts = prefs.getInt("casts", 0)
+        slipOwned = prefs.getBoolean("slip", false)
+        ticketOwned = prefs.getBoolean("ticket", false)
         world.shroomTaken = prefs.getBoolean("shroomT", false)
         world.dungeon2Revealed = prefs.getBoolean("d2r", false)
         val wt = prefs.getString("wtags", "") ?: ""
@@ -1131,6 +1158,13 @@ class GameView(context: Context) : View(context) {
         // Paillasson : on entre dans la maison
         val mat = world.houseMats[i]
         if (mat != null && world.isIsland(hx, hy) && teleCd <= 0f) {
+            if (mat == 5 && !ticketOwned) {
+                teleCd = 0.9f
+                audio.play("error")
+                showMsg("Le videur : \"Place de concert obligatoire.\" (voir Pierre le pecheur)")
+                return
+            }
+            if (mat == 5) showMsg("LE PUNK CLUB ! Le son est ENORME !")
             enterHouse(mat)
             return
         }
@@ -1223,6 +1257,15 @@ class GameView(context: Context) : View(context) {
         for ((cell, id) in world.petSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 1, id))
         }
+        for ((cell, id) in world.punkSpawns) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 2, id))
+        }
+        if (world.pierreCell >= 0) {
+            walkers.add(Walker(world.cx(world.pierreCell) + 0.5f, world.cy(world.pierreCell) + 0.5f, 3, 1))
+        }
+        if (world.frankiCell >= 0) {
+            walkers.add(Walker(world.cx(world.frankiCell) + 0.5f, world.cy(world.frankiCell) + 0.5f, 3, 2))
+        }
     }
 
     private fun updateWalkers(dt: Float) {
@@ -1279,7 +1322,7 @@ class GameView(context: Context) : View(context) {
         dialogueY = w.y
         if (w.kind == 0 && villagers.isNotEmpty()) {
             val p = villagers[(w.id - 1) % villagers.size]
-            dialogue = if (p.metier == "punk") {
+            dialogue = if (p.nom == "Kaos") {
                 // Kaos ne donne pas ses champis a n'importe qui
                 when {
                     !world.sprayTaken -> "Ma bombe Rebel Ink traine chez moi, sers-toi."
@@ -1300,6 +1343,54 @@ class GameView(context: Context) : View(context) {
                 "Bonjour, voyageur !", "Belle journee !", "Bienvenue au village !"
             )[(w.id - 1) % 3]
             dialogueName = ""
+        } else if (w.kind == 2) {
+            // Les punks du club
+            val idx2 = 10 + w.id
+            if (idx2 < villagers.size) {
+                val p2 = villagers[idx2]
+                dialogue = try {
+                    VillagerAI.parler(p2, time, world.bossDefeated, npcRnd)
+                } catch (t: Throwable) { "Oi ! Punk's not dead." }
+                dialogueName = p2.nom
+            } else {
+                dialogue = "Oi !"
+                dialogueName = ""
+            }
+        } else if (w.kind == 3) {
+            // Pierre et Franki : LA QUETE DU SLIP
+            if (w.id == 1) {
+                dialogueName = "Pierre"
+                dialogue = when {
+                    slipOwned -> {
+                        slipOwned = false
+                        ticketOwned = true
+                        audio.play("win")
+                        saveGame()
+                        "MON SLIP PORTE-BONHEUR ! Tiens : une PLACE DE CONCERT au Punk Club !"
+                    }
+                    ticketOwned -> "Le concert va etre ENORME. Fonce au club !"
+                    !metPierre -> {
+                        metPierre = true
+                        saveGame()
+                        "Malheur ! Mon slip porte-bonheur est tombe a la mer ! Franki a une canne..."
+                    }
+                    !rodOwned -> "Va voir Franki pour la canne, je t'en prie !"
+                    else -> "Mon slip est quelque part dans la baie... peche-le !"
+                }
+            } else {
+                dialogueName = "Franki"
+                dialogue = when {
+                    metPierre && !rodOwned -> {
+                        rodOwned = true
+                        audio.play("pickup")
+                        saveGame()
+                        "Tiens ma canne ! Touche la mer pour lancer. Ramene-lui son slip !"
+                    }
+                    rodOwned && !ticketOwned -> "Ca mord par ici, insiste !"
+                    ticketOwned -> "Ha ! Le slip retrouve, ca se fete au club !"
+                    else -> "Pierre a ENCORE perdu quelque chose. Va le voir."
+                }
+            }
         } else {
             dialogue = listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !",
                 "Groin groin !", "Hihan !", "Couac !", "Piou piou !", "Sniff sniff...")[(w.id - 1) % 10]
@@ -1690,6 +1781,31 @@ class GameView(context: Context) : View(context) {
         if (world.isTorch(i)) {
             if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la torche."); return }
             clearPendings(); pendingTorch = i
+            return
+        }
+        // Pecher avec la canne de Franki
+        val ter2 = if (world.inside(gx, gy)) world.terrain[i] else World.TER_NONE
+        if (rodOwned && !slipOwned && !ticketOwned &&
+            (ter2 == World.TER_WATER || ter2 == World.TER_SHALLOW)
+        ) {
+            if (abs(gx - hx) <= 2 && abs(gy - hy) <= 2) {
+                fishCasts++
+                audio.play("flag")
+                showMsg(
+                    when (fishCasts) {
+                        1 -> "Plouf... Ca mord ! ... Une vieille botte. Reessayez !"
+                        2 -> "Une touche !! ... Des algues puantes. Encore un coup !"
+                        else -> {
+                            slipOwned = true
+                            audio.play("win")
+                            "ENORME PRISE !!! ... LE SLIP A PIERRE ! Rapportez-le-lui !"
+                        }
+                    }
+                )
+                saveGame()
+            } else {
+                showMsg("Approchez-vous du bord pour lancer la ligne.")
+            }
             return
         }
         // Un distributeur de 8.6 ?
@@ -2354,9 +2470,11 @@ class GameView(context: Context) : View(context) {
                 rect.centerX() - tile * 1.3f, rect.centerY() + tile * 0.25f,
                 rect.centerX() + tile * 1.3f, rect.centerY() + tile * 0.6f, paint
             )
+            val big = hn == 5
             drawSprite(
                 canvas, sHouseNew[(hn - 1) % sHouseNew.size],
-                rect.centerX(), rect.centerY() - tile * 1.05f, tile * 3.6f
+                rect.centerX(), rect.centerY() - (if (big) tile * 1.35f else tile * 1.05f),
+                if (big) tile * 4.3f else tile * 3.6f
             )
         }
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
@@ -2415,10 +2533,14 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb(80, 0, 0, 0)
             val sw = if (wk.kind == 0) tile * 0.24f else tile * 0.2f
             canvas.drawOval(cxx - sw, cyy + tile * 0.16f, cxx + sw, cyy + tile * 0.3f, paint)
-            val set = if (wk.kind == 0) sNpc[(wk.id - 1) % 10] else sPet[(wk.id - 1) % 10]
-            // Les villageois sont dessines a la meme echelle que le heros
-            val size = if (wk.kind == 0) tile * 1.9f else tile * 1.25f
-            val lift = if (wk.kind == 0) tile * 0.42f else tile * 0.14f
+            val set = when (wk.kind) {
+                0 -> sNpc[(wk.id - 1) % 10]
+                2 -> sPunk[(wk.id - 1) % 7]
+                3 -> sFisher[(wk.id - 1) % 2]
+                else -> sPet[(wk.id - 1) % 10]
+            }
+            val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f
+            val lift = if (wk.kind == 1) tile * 0.14f else tile * 0.42f
             drawSprite(canvas, set[wk.dir.coerceIn(0, 3)], cxx, cyy - lift - bob, size)
         }
     }
@@ -2953,7 +3075,11 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
+            world.isInterior(hx, hy) && world.interiorOf(hx, hy) == 5 -> "LE CONCERT ! Le slip a Pierre resonne !"
             world.isInterior(hx, hy) -> "Vous etes a l'interieur. La porte du bas pour sortir."
+            metPierre && !rodOwned -> "Quete : demander la canne a Franki (plage sud-ouest)."
+            rodOwned && !slipOwned && !ticketOwned -> "Quete : pecher le SLIP dans la mer (touchez l'eau) !"
+            slipOwned -> "Quete : rapporter le slip a Pierre !"
             world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village : la chaumiere et la forge sont ouvertes !"
             world.isIsland(hx, hy) -> "L'ile ! Explorez la plage, les bois et la place au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
@@ -3083,6 +3209,8 @@ class GameView(context: Context) : View(context) {
             arrayOf(sLighter, "Briquet", if (lighterOwned) "1" else "0", Color.rgb(200, 210, 225)),
             arrayOf(sSpray, "Bombe Rebel Ink", if (sprayOwned) "taguez les murs !" else "0", Color.rgb(240, 90, 200)),
             arrayOf(sShroom, "Champignon de Kaos", if (shroomCount > 0) "$shroomCount - touchez pour gouter" else "0", Color.rgb(200, 90, 255)),
+            arrayOf(sRod, "Canne de Franki", if (rodOwned) "touchez la mer pour pecher" else "0", Color.rgb(120, 190, 240)),
+            arrayOf(sSlip, "Slip de Pierre", if (slipOwned) "rapportez-le a Pierre !" else "0", Color.rgb(240, 230, 210)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),

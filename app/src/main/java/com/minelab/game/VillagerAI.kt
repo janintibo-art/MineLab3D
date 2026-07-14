@@ -51,7 +51,15 @@ object VillagerAI {
             Perso("Ulric", "garde", 0.3f, 0.7f),
             Perso("Nina", "couturiere", 0.7f, 0.2f),
             Perso("Pip", "reveur", 0.9f, 0.1f),
-            Perso("Kaos", "punk", 0.8f, 0.9f)
+            Perso("Kaos", "punk", 0.8f, 0.9f),
+            // La bande du PUNK CLUB (sprites punk1..7)
+            Perso("Riff", "punk", 0.7f, 0.5f),
+            Perso("Vex", "punk", 0.8f, 0.4f),
+            Perso("Sid", "punk", 0.6f, 0.6f),
+            Perso("Brik", "punk", 0.4f, 0.8f),
+            Perso("Nox", "punk", 0.3f, 0.7f),
+            Perso("Patch", "punk", 1.0f, 0.1f),
+            Perso("Krust", "punk", 0.3f, 0.9f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.

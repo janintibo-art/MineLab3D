@@ -450,7 +450,13 @@ class GameView(context: Context) : View(context) {
 
     private fun loadAudioPrefs() {
         for (z in Audio.ZONES.indices) {
-            audio.zoneTrack[z] = prefs.getInt("z$z", z % Audio.TRACKS.size)
+            // defaut = la piste prevue pour la zone (ex. la chanson punk au club)
+            audio.zoneTrack[z] = prefs.getInt("z$z", audio.zoneTrack[z])
+        }
+        // Migration : l'ancien defaut de la zone concert etait une piste village
+        if (Audio.ZONES.size > 10 && audio.zoneTrack[10] == 10 && !prefs.getBoolean("zfix", false)) {
+            audio.zoneTrack[10] = 14
+            prefs.edit().putBoolean("zfix", true).apply()
         }
         audio.musicOn = prefs.getBoolean("mus", true)
         audio.sfxOn = prefs.getBoolean("sfx", true)

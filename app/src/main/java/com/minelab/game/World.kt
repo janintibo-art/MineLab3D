@@ -589,7 +589,15 @@ class World(
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 + 4)] = 5
             }
-            5 -> fixtures[idx(rx0 + 6, ry0)] = 3       // club : LA SCENE
+            5 -> {                                  // club : la scene et le matos
+                fixtures[idx(rx0 + 6, ry0)] = 3
+                fixtures[idx(rx0 + 4, ry0 + 1)] = 10    // micro devant la scene
+                fixtures[idx(rx0 + 0, ry0)] = 6         // amplis
+                fixtures[idx(rx0 + 11, ry0)] = 6
+                fixtures[idx(rx0 + 0, ry0 + 6)] = 7     // guitare posee
+                fixtures[idx(rx0 + 11, ry0 + 6)] = 8    // basse posee
+                fixtures[idx(rx0 + 10, ry0 + 1)] = 9    // batterie de rechange
+            }
         }
 
         // Le squat anarchiste : des graffitis partout sur les murs, et la bombe !
@@ -606,6 +614,10 @@ class World(
                 if (inside(x, y)) tags[idx(x, y)] = 1 + (k * 2 + seed.toInt().and(7)) % 15
             }
         }
+
+        // Les meubles en dernier : ils evitent la bombe, les champignons,
+        // la porte, les objets fixes et les places des habitants.
+        furnish(n, rx0, ry0)
     }
 
     /** Plante un arbre (1..6) si la case est de l'herbe libre. */
@@ -659,6 +671,72 @@ class World(
                 val p = when (ring) { 0 -> 90; 1 -> 55; else -> 25 }
                 if (rnd.nextInt(100) < p && !inVillage(gx + dx, gy + dy)) tryTree(gx + dx, gy + dy)
             }
+        }
+    }
+
+    /**
+     * Meuble un interieur. Les meubles bloquent le passage : on laisse
+     * toujours libres la porte, les allees centrales, les objets a ramasser
+     * et les cases ou apparaissent les habitants.
+     */
+    private fun furnish(n: Int, rx0: Int, ry0: Int) {
+        val plan: List<Triple<Int, Int, Int>> = when (n) {
+            // CHAUMIERE : cuisine a gauche, chambre a droite, salon en bas
+            1 -> listOf(
+                Triple(0, 0, 14), Triple(1, 0, 15), Triple(3, 0, 18), Triple(4, 0, 10),
+                Triple(8, 0, 20), Triple(9, 0, 21), Triple(10, 0, 22), Triple(5, 0, 64),
+                Triple(0, 2, 11), Triple(1, 2, 12), Triple(10, 2, 23), Triple(11, 2, 24),
+                Triple(0, 5, 7), Triple(1, 5, 8), Triple(2, 5, 6),
+                Triple(9, 5, 19), Triple(10, 5, 25), Triple(11, 5, 77)
+            )
+            // FORGE : le feu et l'enclume
+            2 -> listOf(
+                Triple(0, 0, 41), Triple(1, 0, 43), Triple(2, 0, 42),
+                Triple(4, 0, 37), Triple(5, 0, 39),
+                Triple(8, 0, 38), Triple(9, 0, 45), Triple(10, 0, 44),
+                Triple(0, 2, 40), Triple(11, 2, 68),
+                Triple(0, 5, 70), Triple(1, 5, 67), Triple(2, 5, 69),
+                Triple(10, 5, 72), Triple(11, 5, 16)
+            )
+            // SQUAT : recup, bazar et vieux canape
+            3 -> listOf(
+                Triple(0, 0, 70), Triple(1, 0, 68), Triple(3, 0, 65), Triple(4, 0, 66),
+                Triple(8, 0, 67), Triple(10, 0, 89), Triple(11, 0, 71),
+                Triple(0, 2, 16), Triple(11, 2, 85),
+                Triple(0, 5, 7), Triple(1, 5, 8), Triple(2, 5, 83),
+                Triple(10, 5, 72), Triple(11, 5, 69)
+            )
+            // ALCHIMISTE : alambics, grimoires et cristaux
+            4 -> listOf(
+                Triple(0, 0, 52), Triple(1, 0, 47), Triple(2, 0, 48),
+                Triple(4, 0, 46), Triple(5, 0, 54),
+                Triple(7, 0, 49), Triple(8, 0, 53),
+                Triple(10, 0, 28), Triple(11, 0, 35),
+                Triple(0, 2, 51), Triple(11, 2, 31),
+                Triple(0, 5, 29), Triple(1, 5, 30),
+                Triple(10, 5, 50), Triple(11, 5, 32)
+            )
+            // PUNK CLUB : le bar et les bancs
+            5 -> listOf(
+                Triple(0, 2, 13), Triple(1, 2, 68), Triple(0, 3, 2), Triple(1, 3, 60),
+                Triple(11, 2, 61), Triple(10, 3, 2),
+                Triple(0, 5, 5), Triple(1, 5, 5), Triple(2, 5, 2),
+                Triple(9, 5, 5), Triple(10, 5, 2)
+            )
+            else -> emptyList()
+        }
+        for ((dx, dy, pn) in plan) {
+            val x = rx0 + dx
+            val y = ry0 + dy
+            if (!inside(x, y)) continue
+            val i = idx(x, y)
+            if (grid[i] != FLOOR) continue
+            if (fixtures.containsKey(i)) continue
+            if (i == houseEntry[n]) continue
+            if (i == sprayCell || i == shroomCell) continue
+            if (i == interiorSpot(n, 0) || i == interiorSpot(n, 1) || i == interiorSpot(n, 2)) continue
+            props[i] = pn
+            grid[i] = WALL
         }
     }
 

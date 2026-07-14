@@ -275,6 +275,11 @@ class GameView(context: Context) : View(context) {
     private val sStage: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_stage)
     private val sRugRed: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_rug_red)
     private val sRugPunk: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_rug_punk)
+    private val sAmp: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_amp)
+    private val sGuitar: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_guitar)
+    private val sBass: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_bass)
+    private val sDrums: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_drums)
+    private val sMic: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_mic)
     private val sSlip: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.slip)
     private val sRod: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.rod)
     private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
@@ -2696,6 +2701,16 @@ class GameView(context: Context) : View(context) {
             }
             4 -> drawSprite(canvas, sRugRed, rect.centerX(), rect.centerY(), tile * 2.6f)
             5 -> drawSprite(canvas, sRugPunk, rect.centerX(), rect.centerY(), tile * 2.6f)
+            6 -> {   // Ampli 8.6 : le haut-parleur vibre au rythme
+                val boom = 1f + 0.05f * sin(time * 8.5f)
+                paint.color = Color.argb((25 + 25 * (0.5f + 0.5f * sin(time * 8.5f))).toInt(), 255, 170, 60)
+                canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.8f * boom, paint)
+                drawSprite(canvas, sAmp, rect.centerX(), rect.centerY() - tile * 0.2f, tile * 1.5f * boom)
+            }
+            7 -> drawSprite(canvas, sGuitar, rect.centerX(), rect.centerY() - tile * 0.25f, tile * 1.4f)
+            8 -> drawSprite(canvas, sBass, rect.centerX(), rect.centerY() - tile * 0.25f, tile * 1.4f)
+            9 -> drawSprite(canvas, sDrums, rect.centerX(), rect.centerY() - tile * 0.15f, tile * 1.7f)
+            10 -> drawSprite(canvas, sMic, rect.centerX(), rect.centerY() - tile * 0.3f, tile * 1.5f)
         }
     }
 

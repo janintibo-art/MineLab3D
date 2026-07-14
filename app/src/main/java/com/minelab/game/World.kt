@@ -72,6 +72,8 @@ class World(
     val decor = HashMap<Int, Pair<Int, Int>>()
     /** Sol de chaque maison (1..12). */
     val houseFloor = HashMap<Int, Int>()
+    /** Objets fixes d'interieur : case -> code (1 fenetre, 2 cheminee, 3 scene, 4 tapis rouge, 5 tapis punk). */
+    val fixtures = HashMap<Int, Int>()
     /** Graffitis sur les murs : case -> numero de tag (1..15). */
     val tags = HashMap<Int, Int>()
     /** Distributeurs de boisson : case -> 1 (dore) ou 2 (bleu). */
@@ -569,6 +571,26 @@ class World(
         val exitCell = idx(rx0 + 6, ry0 + 7)
         houseExit[exitCell] = n
         houseEntry[n] = exitCell
+
+        // Les objets fixes, poses sur les murs / le sol de la piece
+        when (n) {
+            1 -> {                                  // chaumiere : cheminee + fenetres + tapis
+                fixtures[idx(rx0 + 2, ry0 - 1)] = 2
+                fixtures[idx(rx0 + 8, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 10, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 6, ry0 + 3)] = 4
+            }
+            2 -> {                                  // forge : fenetre
+                fixtures[idx(rx0 + 3, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 9, ry0 - 1)] = 1
+            }
+            3 -> fixtures[idx(rx0 + 6, ry0 + 3)] = 5   // squat : tapis punk
+            4 -> {                                  // alchimiste : fenetre + tapis
+                fixtures[idx(rx0 + 9, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 6, ry0 + 4)] = 5
+            }
+            5 -> fixtures[idx(rx0 + 6, ry0)] = 3       // club : LA SCENE
+        }
 
         // Le squat anarchiste : des graffitis partout sur les murs, et la bombe !
         if (n == 3) {

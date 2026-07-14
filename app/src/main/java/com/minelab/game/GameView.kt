@@ -263,6 +263,18 @@ class GameView(context: Context) : View(context) {
         val id = i + 1
         arrayOf(bmp("fisher${id}d"), bmp("fisher${id}u"), bmp("fisher${id}l"), bmp("fisher${id}r"))
     }
+    private val sWallsIn: Array<Bitmap> = arrayOf(
+        BitmapFactory.decodeResource(resources, R.drawable.wall_cottage),
+        BitmapFactory.decodeResource(resources, R.drawable.wall_forge),
+        BitmapFactory.decodeResource(resources, R.drawable.wall_squat),
+        BitmapFactory.decodeResource(resources, R.drawable.wall_alchemist),
+        BitmapFactory.decodeResource(resources, R.drawable.wall_club)
+    )
+    private val sWindow: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_window)
+    private val sFire: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_fireplace)
+    private val sStage: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_stage)
+    private val sRugRed: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_rug_red)
+    private val sRugPunk: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_rug_punk)
     private val sSlip: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.slip)
     private val sRod: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.rod)
     private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
@@ -2546,6 +2558,8 @@ class GameView(context: Context) : View(context) {
                 rect.right + tile * 0.06f, rect.bottom + tile * 0.06f, terPaint
             )
             terPaint.shader = null
+            val fx3 = world.fixtures[i]
+            if (fx3 != null) drawFixture(canvas, fx3)
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
             if (i == world.shroomCell && !world.shroomTaken && spraysDone >= 3) {
@@ -2645,6 +2659,46 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /** Un objet fixe d'interieur : fenetre, cheminee, scene, tapis. */
+    private fun drawFixture(canvas: Canvas, code: Int) {
+        when (code) {
+            1 -> {   // Fenetre : lumiere du jour qui entre
+                val glow = 0.5f + 0.5f * sin(time * 0.8f)
+                paint.color = Color.argb((28 + 18 * glow).toInt(), 190, 225, 255)
+                canvas.drawCircle(rect.centerX(), rect.centerY() + tile * 0.35f, tile * 1.05f, paint)
+                drawSprite(canvas, sWindow, rect.centerX(), rect.centerY(), tile * 1.05f)
+            }
+            2 -> {   // Cheminee : flamme et halo chaud qui vacillent
+                val f = 0.5f + 0.5f * sin(time * 5.5f) * 0.6f + 0.2f * sin(time * 9f)
+                paint.color = Color.argb((45 + 40 * f).toInt(), 255, 150, 45)
+                canvas.drawCircle(rect.centerX(), rect.centerY() + tile * 0.5f, tile * (1.5f + 0.15f * f), paint)
+                paint.color = Color.argb((30 + 30 * f).toInt(), 255, 200, 90)
+                canvas.drawCircle(rect.centerX(), rect.centerY() + tile * 0.3f, tile * 0.7f, paint)
+                drawSprite(canvas, sFire, rect.centerX(), rect.centerY() + tile * 0.12f, tile * 1.65f)
+            }
+            3 -> {   // LA SCENE du club : projecteurs qui balaient
+                for (k in 0..3) {
+                    val a = 0.5f + 0.5f * sin(time * 4f + k * 1.6f)
+                    val cols = intArrayOf(
+                        Color.argb((40 + 70 * a).toInt(), 255, 60, 60),
+                        Color.argb((40 + 70 * a).toInt(), 70, 120, 255),
+                        Color.argb((40 + 70 * a).toInt(), 255, 220, 90),
+                        Color.argb((40 + 70 * a).toInt(), 200, 70, 255)
+                    )
+                    paint.color = cols[k]
+                    canvas.drawCircle(
+                        rect.centerX() + (k - 1.5f) * tile * 0.9f,
+                        rect.centerY() + tile * 1.1f,
+                        tile * (0.55f + 0.2f * a), paint
+                    )
+                }
+                drawSprite(canvas, sStage, rect.centerX(), rect.centerY() + tile * 0.25f, tile * 4.2f)
+            }
+            4 -> drawSprite(canvas, sRugRed, rect.centerX(), rect.centerY(), tile * 2.6f)
+            5 -> drawSprite(canvas, sRugPunk, rect.centerX(), rect.centerY(), tile * 2.6f)
+        }
+    }
+
     /** Une porte de maison (entree / sortie). */
     private fun drawHouseDoor(canvas: Canvas) {
         tmpRect.set(
@@ -2730,12 +2784,26 @@ class GameView(context: Context) : View(context) {
 
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
         val under = gy >= world.uy0
-        val nearRoom = world.isInterior(gx + 1, gy) || world.isInterior(gx - 1, gy) ||
-                world.isInterior(gx, gy + 1) || world.isInterior(gx, gy - 1)
+        // Un mur de maison : la texture de SON batiment
+        var roomN = 0
+        for (d in listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))) {
+            val n = world.interiorOf(gx + d.first, gy + d.second)
+            if (n > 0) { roomN = n; break }
+        }
         tmpRect.set(rect.left - tile * 0.045f, rect.top - tile * 0.045f, rect.right + tile * 0.045f, rect.bottom + tile * 0.045f)
-        drawTex(canvas, if (nearRoom || !under) sWall else sWallMossy, tmpRect)
-        paint.color = if (nearRoom) Color.argb(60, 55, 32, 14)
-        else Color.argb(if (under) 95 else 75, 0, 0, 0)
+        if (roomN > 0) {
+            useTer(sWallsIn[(roomN - 1).coerceIn(0, 4)], 1.5f)
+            canvas.drawRect(tmpRect, terPaint)
+            terPaint.shader = null
+            paint.color = Color.argb(45, 10, 6, 4)
+            canvas.drawRect(tmpRect, paint)
+            // Un objet accroche au mur (fenetre)
+            val fx2 = world.fixtures[world.idx(gx, gy)]
+            if (fx2 != null) drawFixture(canvas, fx2)
+            return
+        }
+        drawTex(canvas, if (under) sWallMossy else sWall, tmpRect)
+        paint.color = Color.argb(if (under) 95 else 75, 0, 0, 0)
         canvas.drawRect(tmpRect, paint)
         // Graffiti bombe sur le mur
         val tg = world.tags[world.idx(gx, gy)]

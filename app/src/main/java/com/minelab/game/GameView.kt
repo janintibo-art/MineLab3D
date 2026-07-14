@@ -2356,6 +2356,38 @@ class GameView(context: Context) : View(context) {
         drawMobs(canvas, w)
         drawWalkers(canvas, w)
         drawHero(canvas, w)
+        drawInteriorMask(canvas, w)
+    }
+
+    /**
+     * A l'interieur d'un batiment, tout ce qui depasse de la piece est plonge
+     * dans le noir : on ne voit plus les pieces voisines ni l'ile au-dessus.
+     * Une lumiere chaude baigne la piece.
+     */
+    private fun drawInteriorMask(canvas: Canvas, w: Float) {
+        if (!world.isInterior(hx, hy)) return
+        val n = world.interiorOf(hx, hy)
+        val rx0 = 1 + ((n - 1) % 3) * 13
+        val ry0 = world.hy0 + 1 + ((n - 1) / 3) * 9
+        val l = sx((rx0 - 1).toFloat(), w)
+        val r = sx((rx0 + 13).toFloat(), w)
+        val t = sy((ry0 - 1).toFloat())
+        val b = sy((ry0 + 9).toFloat())
+        paint.color = Color.rgb(9, 8, 11)
+        if (t > boardTop) canvas.drawRect(0f, boardTop, w, t, paint)
+        if (b < boardBottom) canvas.drawRect(0f, b, w, boardBottom, paint)
+        if (l > 0f) canvas.drawRect(0f, t, l, b, paint)
+        if (r < w) canvas.drawRect(r, t, w, b, paint)
+        // Lumiere chaude d'interieur
+        paint.color = Color.argb(16, 255, 185, 95)
+        canvas.drawRect(l, t, r, b, paint)
+        // Vignette douce sur les bords de la piece
+        paint.color = Color.argb(60, 15, 10, 8)
+        val vw = tile * 0.55f
+        canvas.drawRect(l, t, r, t + vw, paint)
+        canvas.drawRect(l, b - vw, r, b, paint)
+        canvas.drawRect(l, t, l + vw, b, paint)
+        canvas.drawRect(r - vw, t, r, b, paint)
     }
 
     /** Dessine un sprite centre sur (cx,cy) a la taille demandee. */
@@ -2698,9 +2730,12 @@ class GameView(context: Context) : View(context) {
 
     private fun drawWall(canvas: Canvas, gx: Int, gy: Int) {
         val under = gy >= world.uy0
+        val nearRoom = world.isInterior(gx + 1, gy) || world.isInterior(gx - 1, gy) ||
+                world.isInterior(gx, gy + 1) || world.isInterior(gx, gy - 1)
         tmpRect.set(rect.left - tile * 0.045f, rect.top - tile * 0.045f, rect.right + tile * 0.045f, rect.bottom + tile * 0.045f)
-        drawTex(canvas, if (under) sWallMossy else sWall, tmpRect)
-        paint.color = Color.argb(if (under) 95 else 75, 0, 0, 0)
+        drawTex(canvas, if (nearRoom || !under) sWall else sWallMossy, tmpRect)
+        paint.color = if (nearRoom) Color.argb(60, 55, 32, 14)
+        else Color.argb(if (under) 95 else 75, 0, 0, 0)
         canvas.drawRect(tmpRect, paint)
         // Graffiti bombe sur le mur
         val tg = world.tags[world.idx(gx, gy)]

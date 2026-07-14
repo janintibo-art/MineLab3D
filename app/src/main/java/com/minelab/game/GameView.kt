@@ -142,6 +142,7 @@ class GameView(context: Context) : View(context) {
     private var sprayOwned = false
     private var sprayNext = 1
     private var shroomCount = 0
+    private var spraysDone = 0
     private var tripT = 0f
     private val vendorsUsed = HashSet<Int>()
     private var energyCount = 0
@@ -507,7 +508,7 @@ class GameView(context: Context) : View(context) {
         joyOwned = false; joyOn = false
         swordOwned = false; lighterOwned = false; energyCount = 0
         sprayOwned = false; sprayNext = 1; vendorsUsed.clear()
-        shroomCount = 0; tripT = 0f
+        shroomCount = 0; spraysDone = 0; tripT = 0f
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -598,6 +599,7 @@ class GameView(context: Context) : View(context) {
         e.putString("vused", setToStr(vendorsUsed))
         e.putString("wtags", world.tags.entries.joinToString(";") { "${it.key}:${it.value}" })
         e.putInt("shrooms", shroomCount)
+        e.putInt("sprayed", spraysDone)
         e.putBoolean("shroomT", world.shroomTaken)
         e.putBoolean("d2r", world.dungeon2Revealed)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
@@ -679,6 +681,7 @@ class GameView(context: Context) : View(context) {
         sprayNext = prefs.getInt("sprayN", 1)
         vendorsUsed.clear(); vendorsUsed.addAll(strToSet(prefs.getString("vused", "")))
         shroomCount = prefs.getInt("shrooms", 0)
+        spraysDone = prefs.getInt("sprayed", 0)
         world.shroomTaken = prefs.getBoolean("shroomT", false)
         world.dungeon2Revealed = prefs.getBoolean("d2r", false)
         val wt = prefs.getString("wtags", "") ?: ""
@@ -1073,8 +1076,8 @@ class GameView(context: Context) : View(context) {
         if (i == world.dungeon2Cell && world.dungeon2Revealed) {
             showMsg("L'entree du prochain donjon... scellee pour l'instant. (A SUIVRE !)")
         }
-        // Les champignons de Kaos
-        if (i == world.shroomCell && !world.shroomTaken) {
+        // Les champignons de Kaos (seulement pour les vrais taggeurs)
+        if (i == world.shroomCell && !world.shroomTaken && spraysDone >= 3) {
             world.shroomTaken = true
             shroomCount += 3
             audio.play("pickup")
@@ -1274,7 +1277,17 @@ class GameView(context: Context) : View(context) {
         dialogueY = w.y
         if (w.kind == 0 && villagers.isNotEmpty()) {
             val p = villagers[(w.id - 1) % villagers.size]
-            dialogue = try {
+            dialogue = if (p.metier == "punk") {
+                // Kaos ne donne pas ses champis a n'importe qui
+                when {
+                    !world.sprayTaken -> "Ma bombe Rebel Ink traine chez moi, sers-toi."
+                    spraysDone < 3 -> "La bombe, c'est bien. Encore ${3 - spraysDone} tag(s) et t'es des notres."
+                    !world.shroomTaken -> "Respect, l'artiste ! Mes champis t'attendent chez moi. Cadeau."
+                    else -> try {
+                        VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+                    } catch (t: Throwable) { "No futur, l'ami." }
+                }
+            } else try {
                 VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
             } catch (t: Throwable) {
                 "Belle journee, non ?"
@@ -1690,8 +1703,15 @@ class GameView(context: Context) : View(context) {
             ) {
                 world.tags[i] = sprayNext
                 sprayNext = sprayNext % 15 + 1
+                spraysDone++
                 audio.play("torch")
-                showMsg("Pschhht ! Kaos serait fier.")
+                showMsg(
+                    when {
+                        spraysDone < 3 -> "Pschhht ! ($spraysDone/3 pour impressionner Kaos)"
+                        spraysDone == 3 -> "Pschhht ! Trois tags... Kaos va adorer. Passez le voir !"
+                        else -> "Pschhht ! Kaos serait fier."
+                    }
+                )
                 saveGame()
                 return
             }
@@ -2267,7 +2287,7 @@ class GameView(context: Context) : View(context) {
             terPaint.shader = null
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
-            if (i == world.shroomCell && !world.shroomTaken) {
+            if (i == world.shroomCell && !world.shroomTaken && spraysDone >= 3) {
                 val bob2 = sin(time * 2.6f) * tile * 0.05f
                 val pulse2 = 0.5f + 0.5f * sin(time * 3.4f)
                 paint.color = Color.argb((40 + 55 * pulse2).toInt(), 200, 90, 255)

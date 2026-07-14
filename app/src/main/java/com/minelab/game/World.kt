@@ -61,6 +61,8 @@ class World(
     val houses = HashMap<Int, Int>()
     /** Le paillasson devant chaque maison : case -> numero de maison (1..10). */
     val houseMats = HashMap<Int, Int>()
+    /** Toutes les cases occupees par chaque batiment. */
+    val houseBody = HashMap<Int, Int>()
     /** Interieurs : numero de maison -> case d'arrivee ; et porte de sortie -> maison. */
     val houseEntry = HashMap<Int, Int>()
     val houseExit = HashMap<Int, Int>()
@@ -533,6 +535,7 @@ class World(
         for (dy in -1..0) for (dx in -1..1) {
             val c = idx(x + dx, y + dy)
             grid[c] = WALL
+            houseBody[c] = n
         }
         houses[idx(x, y)] = n
         // La porte : le paillasson juste devant
@@ -590,6 +593,10 @@ class World(
         if (grid[i] != FLOOR || terrain[i] != TER_GRASS) return
         if (houses.containsKey(i) || houseMats.containsKey(i) || decor.containsKey(i)) return
         if (i == islandPortal || i == dungeon2Cell || vendors.containsKey(i)) return
+        // jamais coller un arbre a une porte
+        for (dy in -1..1) for (dx in -1..1) {
+            if (inside(x + dx, y + dy) && houseMats.containsKey(idx(x + dx, y + dy))) return
+        }
         decor[i] = Pair(0, 1 + rnd.nextInt(6))
         grid[i] = WALL
     }

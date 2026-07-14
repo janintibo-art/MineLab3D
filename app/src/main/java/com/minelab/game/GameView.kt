@@ -394,6 +394,10 @@ class GameView(context: Context) : View(context) {
     private val btnMenu = RectF()
     private val btnSword = RectF()
     private val btnReset = RectF()
+    private val btnAct = RectF()
+    private var actKind = 0        // 0 rien, 1 entrer, 2 sortir, 3 parler, 4 distributeur
+    private var actData = 0
+    private var actLabel = ""
     private val mMap = RectF()
     private val mSet = RectF()
     private var showMap = false
@@ -1158,14 +1162,7 @@ class GameView(context: Context) : View(context) {
         // Paillasson : on entre dans la maison
         val mat = world.houseMats[i]
         if (mat != null && world.isIsland(hx, hy) && teleCd <= 0f) {
-            if (mat == 5 && !ticketOwned) {
-                teleCd = 0.9f
-                audio.play("error")
-                showMsg("Le videur : \"Place de concert obligatoire.\" (voir Pierre le pecheur)")
-                return
-            }
-            if (mat == 5) showMsg("LE PUNK CLUB ! Le son est ENORME !")
-            enterHouse(mat)
+            tryEnterHouse(mat)
             return
         }
         // Porte de sortie d'une maison
@@ -1405,6 +1402,113 @@ class GameView(context: Context) : View(context) {
         val dy = fy - w.y
         w.dir = if (abs(dx) >= abs(dy)) (if (dx > 0) 3 else 2) else (if (dy > 0) 0 else 1)
         audio.play("pickup")
+    }
+
+    /** Quelle interaction est possible ici ? (bouton contextuel) */
+    private fun updateInteraction() {
+        actKind = 0
+        actLabel = ""
+        // 1. Sortir d'un batiment
+        if (world.isInterior(hx, hy)) {
+            val n = world.interiorOf(hx, hy)
+            val e = world.houseEntry[n]
+            if (e != null && abs(world.cx(e) - hx) <= 1 && abs(world.cy(e) - hy) <= 2) {
+                actKind = 2; actData = n; actLabel = "SORTIR"
+                return
+            }
+        }
+        // 2. Entrer : un paillasson sur ma case ou a cote
+        for (dy in -1..1) for (dx in -1..1) {
+            if (!world.inside(hx + dx, hy + dy)) continue
+            val n = world.houseMats[world.idx(hx + dx, hy + dy)] ?: continue
+            if (!world.isIsland(hx, hy)) continue
+            actKind = 1; actData = n
+            actLabel = if (n == 5) "ENTRER AU CLUB" else "ENTRER"
+            return
+        }
+        // 3. Le distributeur
+        for (dy in -1..1) for (dx in -1..1) {
+            if (!world.inside(hx + dx, hy + dy)) continue
+            val c = world.idx(hx + dx, hy + dy)
+            if (world.vendors.containsKey(c)) {
+                actKind = 4; actData = c; actLabel = "8.6 — 2,50"
+                return
+            }
+        }
+        // 4. Parler au plus proche
+        var best = -1
+        var bd = 2.1f
+        for ((k, wk) in walkers.withIndex()) {
+            val d = hypot(wk.x - fx, wk.y - fy)
+            if (d < bd) { bd = d; best = k }
+        }
+        if (best >= 0) {
+            val wk = walkers[best]
+            actKind = 3; actData = best
+            actLabel = when (wk.kind) {
+                0 -> "PARLER"
+                2 -> "PARLER"
+                3 -> if (wk.id == 1) "PARLER A PIERRE" else "PARLER A FRANKI"
+                else -> "CARESSER"
+            }
+        }
+    }
+
+    /** Le bouton d'interaction contextuel. */
+    private fun drawActionButton(canvas: Canvas, w: Float, h: Float) {
+        updateInteraction()
+        if (actKind == 0) { btnAct.setEmpty(); return }
+        paint.textSize = h * 0.021f
+        paint.isFakeBoldText = true
+        val tw = paint.measureText(actLabel)
+        val bw = tw + h * 0.055f
+        val bh = h * 0.052f
+        val cxb = w / 2f
+        val yb = boardBottom - bh - h * 0.015f
+        btnAct.set(cxb - bw / 2f, yb, cxb + bw / 2f, yb + bh)
+        val pulse = 0.5f + 0.5f * sin(time * 3.5f)
+        paint.color = Color.argb(235, 34, 30, 26)
+        canvas.drawRoundRect(btnAct, bh * 0.4f, bh * 0.4f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.004f
+        paint.color = Color.rgb((200 + 55 * pulse).toInt(), (170 + 40 * pulse).toInt(), 80)
+        canvas.drawRoundRect(btnAct, bh * 0.4f, bh * 0.4f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 235, 190)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText(actLabel, cxb, yb + bh * 0.66f, paint)
+        paint.isFakeBoldText = false
+    }
+
+    private fun doInteract() {
+        when (actKind) {
+            1 -> tryEnterHouse(actData)
+            2 -> leaveHouse(actData)
+            3 -> walkers.getOrNull(actData)?.let { if (hypot(it.x - fx, it.y - fy) <= 2.3f) talkTo(it) }
+            4 -> {
+                if (actData in vendorsUsed) {
+                    showMsg("Plus de monnaie... Le distributeur affiche 2,50.")
+                } else {
+                    vendorsUsed.add(actData)
+                    energyCount++
+                    audio.play("chest")
+                    showMsg("CLONK ! Une canette bien fraiche tombe. (inventaire)")
+                    saveGame()
+                }
+            }
+        }
+    }
+
+    /** Entrer dans une maison (le videur du club controle les places). */
+    private fun tryEnterHouse(n: Int) {
+        if (n == 5 && !ticketOwned) {
+            teleCd = 0.9f
+            audio.play("error")
+            showMsg("Le videur : \"Place de concert obligatoire.\" (voir Pierre le pecheur)")
+            return
+        }
+        if (n == 5) showMsg("LE PUNK CLUB ! Le son est ENORME !")
+        enterHouse(n)
     }
 
     /** Entrer dans une maison / en ressortir. */
@@ -1736,8 +1840,8 @@ class GameView(context: Context) : View(context) {
                 if (p2 != null) { clearPendings(); path = p2; pathStep = 0; return }
             }
         }
-        // Une maison : on va sonner a la porte
-        val hn = world.houses[i]
+        // Une maison : on va sonner a la porte (tout le batiment est cliquable)
+        val hn = world.houses[i] ?: world.houseBody[i]
         if (hn != null) {
             var matCell = -1
             for ((c, n) in world.houseMats) if (n == hn && world.isIsland(world.cx(c), world.cy(c))) matCell = c
@@ -1929,6 +2033,7 @@ class GameView(context: Context) : View(context) {
         canvas.restore()
 
         drawDialogue(canvas, w, h)
+        drawActionButton(canvas, w, h)
         drawHud(canvas, w, h)
         if (joyOn && joyOwned) drawJoystick(canvas)
 
@@ -3893,6 +3998,7 @@ class GameView(context: Context) : View(context) {
 
         val longPress = System.currentTimeMillis() - downTime > 400
 
+        if (actKind != 0 && btnAct.contains(e.x, e.y)) { doInteract(); return true }
         if (btnFlag.contains(e.x, e.y)) {
             flagMode = !flagMode
             showMsg(if (flagMode) "Mode drapeau : touchez une dalle pour la marquer." else "Mode normal.")

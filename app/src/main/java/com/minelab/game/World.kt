@@ -77,6 +77,12 @@ class World(
     /** La bombe de peinture, cachee dans le squat. */
     var sprayCell = -1
     var sprayTaken = false
+    /** Les champignons de Kaos, dans le squat aussi. */
+    var shroomCell = -1
+    var shroomTaken = false
+    /** L'entree cachee du prochain donjon (revelee par le champignon). */
+    var dungeon2Cell = -1
+    var dungeon2Revealed = false
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val petSpawns = ArrayList<Pair<Int, Int>>()
@@ -406,7 +412,22 @@ class World(
 
         placeTwoHouses()
         placeVillagers()
+        placeSecretEntrance()
         placeDecor()
+    }
+
+    /** Cherche une case d'herbe au nord-ouest pour l'entree du prochain donjon. */
+    private fun placeSecretEntrance() {
+        val top = iy0
+        outer@ for (y in top + 6..top + 12) {
+            for (x in 6..14) {
+                val i = idx(x, y)
+                if (isFloor(x, y) && terrain[i] == TER_GRASS) {
+                    dungeon2Cell = i
+                    break@outer
+                }
+            }
+        }
     }
 
     /** Arbres, buissons, rochers sur l'ile ; barques echouees sur la plage. */
@@ -418,6 +439,7 @@ class World(
                 val i = idx(x, y)
                 if (grid[i] != FLOOR) continue
                 if (houses.containsKey(i) || houseMats.containsKey(i) || i == islandPortal) continue
+                if (i == dungeon2Cell) continue
                 if (terrain[i] == TER_DIRT || terrain[i] == TER_EARTH) continue   // pas sur les chemins
                 if (inVillage(x, y)) continue          // on laisse la place libre
                 val t = terrain[i]
@@ -512,6 +534,7 @@ class World(
         // Le squat anarchiste : des graffitis partout sur les murs, et la bombe !
         if (n == 3) {
             sprayCell = idx(rx0 + 9, ry0 + 2)
+            shroomCell = idx(rx0 + 2, ry0 + 4)
             val wallTags = listOf(
                 Pair(rx0 + 1, ry0 - 1), Pair(rx0 + 4, ry0 - 1), Pair(rx0 + 7, ry0 - 1),
                 Pair(rx0 + 10, ry0 - 1), Pair(rx0 - 1, ry0 + 2), Pair(rx0 + 12, ry0 + 2),

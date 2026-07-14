@@ -141,6 +141,8 @@ class GameView(context: Context) : View(context) {
     private var lighterOwned = false
     private var sprayOwned = false
     private var sprayNext = 1
+    private var shroomCount = 0
+    private var tripT = 0f
     private val vendorsUsed = HashSet<Int>()
     private var energyCount = 0
     private var joyOwned = false
@@ -298,6 +300,7 @@ class GameView(context: Context) : View(context) {
     private val sVendorGold: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vendor_gold)
     private val sVendorBlue: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.vendor_blue)
     private val sSpray: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.spray)
+    private val sShroom: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.shroom)
     private val sHouseNew: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
         BitmapFactory.decodeResource(resources, R.drawable.house_forge),
@@ -395,6 +398,7 @@ class GameView(context: Context) : View(context) {
     private val mQuit = RectF()
     private val invJoyRect = RectF()
     private val invEnergyRect = RectF()
+    private val invShroomRect = RectF()
 
     private var downX = 0f
     private var downY = 0f
@@ -503,6 +507,7 @@ class GameView(context: Context) : View(context) {
         joyOwned = false; joyOn = false
         swordOwned = false; lighterOwned = false; energyCount = 0
         sprayOwned = false; sprayNext = 1; vendorsUsed.clear()
+        shroomCount = 0; tripT = 0f
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -592,6 +597,9 @@ class GameView(context: Context) : View(context) {
         e.putInt("sprayN", sprayNext)
         e.putString("vused", setToStr(vendorsUsed))
         e.putString("wtags", world.tags.entries.joinToString(";") { "${it.key}:${it.value}" })
+        e.putInt("shrooms", shroomCount)
+        e.putBoolean("shroomT", world.shroomTaken)
+        e.putBoolean("d2r", world.dungeon2Revealed)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -670,6 +678,9 @@ class GameView(context: Context) : View(context) {
         world.sprayTaken = prefs.getBoolean("sprayT", false)
         sprayNext = prefs.getInt("sprayN", 1)
         vendorsUsed.clear(); vendorsUsed.addAll(strToSet(prefs.getString("vused", "")))
+        shroomCount = prefs.getInt("shrooms", 0)
+        world.shroomTaken = prefs.getBoolean("shroomT", false)
+        world.dungeon2Revealed = prefs.getBoolean("d2r", false)
         val wt = prefs.getString("wtags", "") ?: ""
         if (wt.isNotBlank()) {
             for (part in wt.split(";")) {
@@ -789,6 +800,7 @@ class GameView(context: Context) : View(context) {
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         attackCd = (attackCd - dt).coerceAtLeast(0f)
         teleCd = (teleCd - dt).coerceAtLeast(0f)
+        tripT = (tripT - dt).coerceAtLeast(0f)
         sudokuShake = (sudokuShake - dt).coerceAtLeast(0f)
         attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
@@ -1057,6 +1069,18 @@ class GameView(context: Context) : View(context) {
     private fun onArrive() {
         val i = world.idx(hx, hy)
 
+        // L'entree secrete du prochain donjon
+        if (i == world.dungeon2Cell && world.dungeon2Revealed) {
+            showMsg("L'entree du prochain donjon... scellee pour l'instant. (A SUIVRE !)")
+        }
+        // Les champignons de Kaos
+        if (i == world.shroomCell && !world.shroomTaken) {
+            world.shroomTaken = true
+            shroomCount += 3
+            audio.play("pickup")
+            showMsg("Des champignons psychedeliques ! (+3, inventaire pour gouter)")
+            saveGame()
+        }
         // La bombe Rebel Ink, dans le squat
         if (i == world.sprayCell && !world.sprayTaken) {
             world.sprayTaken = true
@@ -1774,6 +1798,24 @@ class GameView(context: Context) : View(context) {
             paint.color = Color.argb((boomFlash * 170).toInt(), 255, 120, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
         }
+        if (tripT > 0f) {
+            val a = (tripT.coerceAtMost(2f) / 2f)
+            for (k in 0..4) {
+                val ang = time * (0.7f + k * 0.23f) + k * 1.3f
+                val rr = min(w, h) * (0.28f + 0.1f * sin(time * 1.7f + k))
+                val cxk = w / 2f + cos(ang) * w * 0.3f
+                val cyk = h / 2f + sin(ang * 1.3f) * h * 0.28f
+                val cols = intArrayOf(
+                    Color.argb((36 * a).toInt(), 255, 80, 200),
+                    Color.argb((36 * a).toInt(), 90, 200, 255),
+                    Color.argb((36 * a).toInt(), 255, 200, 60),
+                    Color.argb((36 * a).toInt(), 140, 90, 255),
+                    Color.argb((36 * a).toInt(), 80, 255, 160)
+                )
+                paint.color = cols[k]
+                canvas.drawCircle(cxk, cyk, rr, paint)
+            }
+        }
         if (damageT > 0f) {
             paint.color = Color.argb((damageT * 200).toInt().coerceAtMost(90), 220, 30, 30)
             canvas.drawRect(0f, 0f, w, h, paint)
@@ -2225,6 +2267,13 @@ class GameView(context: Context) : View(context) {
             terPaint.shader = null
             val pn = world.props[i]
             if (pn != null) drawSprite(canvas, prop(pn), rect.centerX(), rect.centerY() - tile * 0.12f, tile * 1.35f)
+            if (i == world.shroomCell && !world.shroomTaken) {
+                val bob2 = sin(time * 2.6f) * tile * 0.05f
+                val pulse2 = 0.5f + 0.5f * sin(time * 3.4f)
+                paint.color = Color.argb((40 + 55 * pulse2).toInt(), 200, 90, 255)
+                canvas.drawCircle(rect.centerX(), rect.centerY() + bob2, tile * 0.4f, paint)
+                drawSprite(canvas, sShroom, rect.centerX(), rect.centerY() + bob2 - tile * 0.08f, tile * 0.8f)
+            }
             if (i == world.sprayCell && !world.sprayTaken) {
                 val bob = sin(time * 3f) * tile * 0.05f
                 val pulse = 0.5f + 0.5f * sin(time * 4f)
@@ -2290,6 +2339,27 @@ class GameView(context: Context) : View(context) {
         }
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
         if (world.isIslandPortal(gx, gy)) drawTeleport(canvas)
+        // L'entree secrete du prochain donjon (visible apres le champignon)
+        if (i == world.dungeon2Cell && world.dungeon2Revealed) {
+            val pulse = 0.5f + 0.5f * sin(time * 2.2f)
+            paint.color = Color.argb((50 + 60 * pulse).toInt(), 170, 90, 255)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.62f, paint)
+            paint.color = Color.rgb(16, 10, 24)
+            canvas.drawOval(
+                rect.left + tile * 0.12f, rect.top + tile * 0.22f,
+                rect.right - tile * 0.12f, rect.bottom - tile * 0.06f, paint
+            )
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.07f
+            paint.color = Color.rgb(110, 80, 160)
+            canvas.drawArc(
+                rect.left + tile * 0.1f, rect.top + tile * 0.16f,
+                rect.right - tile * 0.1f, rect.bottom, 180f, 180f, false, paint
+            )
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb((120 + 100 * pulse).toInt(), 200, 140, 255)
+            canvas.drawCircle(rect.centerX(), rect.centerY() + tile * 0.1f, tile * 0.06f, paint)
+        }
     }
 
     /** Une porte de maison (entree / sortie). */
@@ -2990,6 +3060,7 @@ class GameView(context: Context) : View(context) {
             arrayOf(sSwordV, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),
             arrayOf(sLighter, "Briquet", if (lighterOwned) "1" else "0", Color.rgb(200, 210, 225)),
             arrayOf(sSpray, "Bombe Rebel Ink", if (sprayOwned) "taguez les murs !" else "0", Color.rgb(240, 90, 200)),
+            arrayOf(sShroom, "Champignon de Kaos", if (shroomCount > 0) "$shroomCount - touchez pour gouter" else "0", Color.rgb(200, 90, 255)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
@@ -3008,6 +3079,7 @@ class GameView(context: Context) : View(context) {
             tmpRect.set(bx, y, bx + bw, y + rh)
             if (label == "Joystick") invJoyRect.set(tmpRect)
             if (label == "Canette d'energie") invEnergyRect.set(tmpRect)
+            if (label == "Champignon de Kaos") invShroomRect.set(tmpRect)
             val active = (label == "Joystick" && joyOn)
             drawFrame(
                 canvas, tmpRect,
@@ -3600,6 +3672,18 @@ class GameView(context: Context) : View(context) {
                 hp = (hp + 30).coerceAtMost(100)
                 saveGame()
                 showMsg("Glouglou ! +30 PV")
+            } else if (invShroomRect.contains(e.x, e.y) && shroomCount > 0) {
+                shroomCount--
+                tripT = 9f
+                showInv = false
+                audio.play("simon2")
+                if (!world.dungeon2Revealed) {
+                    world.dungeon2Revealed = true
+                    showMsg("Vos yeux s'ouvrent... une ENTREE SECRETE apparait au nord-ouest !")
+                } else {
+                    showMsg("Les couleurs dansent... Kaos avait raison.")
+                }
+                saveGame()
             } else {
                 showInv = false
             }

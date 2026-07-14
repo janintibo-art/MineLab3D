@@ -209,7 +209,9 @@ object VillagerAI {
             "Les coffres appartiennent a tout le monde !",
             "Ni dieu, ni maitre, ni mini-demineur.",
             "Ma bombe Rebel Ink traine chez moi, sers-toi.",
-            "Le distributeur ? 2,50 la canette. L'arnaque."
+            "Le distributeur ? 2,50 la canette. L'arnaque.",
+            "Goute mes champis : tu verras l'invisible.",
+            "L'ile cache une autre entree. Ouvre les yeux."
         )
     ) }
 

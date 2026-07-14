@@ -46,7 +46,17 @@ class GameView(context: Context) : View(context) {
     private var crashLog: String? = null
 
     private fun crash(e: Throwable) {
-        crashLog = e.toString() + "\n" + e.stackTrace.take(14).joinToString("\n") { "  $it" }
+        val sb = StringBuilder()
+        var cur: Throwable? = e
+        var depth = 0
+        while (cur != null && depth < 4) {
+            if (depth > 0) sb.append("CAUSE : ")
+            sb.append(cur.toString()).append("\n")
+            for (f in cur.stackTrace.take(8)) sb.append("  ").append(f).append("\n")
+            cur = cur.cause
+            depth++
+        }
+        crashLog = sb.toString()
         try { prefs.edit().putString("lastcrash", crashLog).commit() } catch (t: Throwable) { }
         invalidate()
     }
@@ -783,7 +793,7 @@ class GameView(context: Context) : View(context) {
             if (near.isNotEmpty()) {
                 val w2 = near[npcRnd.nextInt(near.size)]
                 val p2 = villagers[(w2.id - 1) % villagers.size]
-                val line = VillagerAI.marmonner(p2, npcRnd)
+                val line = try { VillagerAI.marmonner(p2, npcRnd) } catch (t: Throwable) { null }
                 if (line != null) {
                     dialogue = line
                     dialogueName = p2.nom
@@ -1119,7 +1129,11 @@ class GameView(context: Context) : View(context) {
 
     private fun initWalkers() {
         walkers.clear()
-        villagers = VillagerAI.creerVillageois(world.seed)
+        villagers = try {
+            VillagerAI.creerVillageois(world.seed)
+        } catch (t: Throwable) {
+            emptyList()
+        }
         for ((cell, id) in world.npcSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 0, id))
         }
@@ -1181,8 +1195,17 @@ class GameView(context: Context) : View(context) {
         dialogueY = w.y
         if (w.kind == 0 && villagers.isNotEmpty()) {
             val p = villagers[(w.id - 1) % villagers.size]
-            dialogue = VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+            dialogue = try {
+                VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+            } catch (t: Throwable) {
+                "Belle journee, non ?"
+            }
             dialogueName = p.nom
+        } else if (w.kind == 0) {
+            dialogue = listOf(
+                "Bonjour, voyageur !", "Belle journee !", "Bienvenue au village !"
+            )[(w.id - 1) % 3]
+            dialogueName = ""
         } else {
             dialogue = listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !",
                 "Groin groin !", "Hihan !", "Couac !", "Piou piou !", "Sniff sniff...")[(w.id - 1) % 10]

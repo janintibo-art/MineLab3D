@@ -70,7 +70,7 @@ object VillagerAI {
      * Convention identique au dialogue.py d'origine : {symbole} = tirage
      * dans la liste du meme nom, en cascade.
      */
-    private val G: Map<String, List<String>> = mapOf(
+    private val G: Map<String, List<String>> by lazy { mapOf(
         // --- situations (choisies par le "cerveau" selon la memoire)
         "premiere" to listOf(
             "{salut} ! {qui_es_tu} ?",
@@ -146,10 +146,10 @@ object VillagerAI {
             "parle tout seul aux mouettes", "a peur du noir"
         ),
         "tresor" to listOf("une salle secrete", "un tresor englouti", "une porte scellee", "de l'or")
-    )
+    ) }
 
     /** Les grammaires de metier : chaque villageois a SES sujets a lui. */
-    private val METIERS: Map<String, List<String>> = mapOf(
+    private val METIERS: Map<String, List<String>> by lazy { mapOf(
         "aubergiste" to listOf(
             "Une bonne soupe, ca te dirait ?",
             "Mon auberge ouvrira bientot, promis !",
@@ -200,9 +200,9 @@ object VillagerAI {
             "Les nuages dessinent des dragons, regarde.",
             "Et si le portail menait aux etoiles ?"
         )
-    )
+    ) }
 
-    private val RX = Regex("\\{(\\w+)}")
+    private val RX by lazy { Regex("\\{(\\w+)\\}") }
 
     /** Remplace chaque {symbole} en cascade (garde-fou anti-boucle). */
     private fun expanser(modele: String, r: Random): String {

@@ -261,6 +261,13 @@ class GameView(context: Context) : View(context) {
     private val sRocks: Array<Bitmap?> = arrayOfNulls(10)
     private val sBoats: Array<Bitmap?> = arrayOfNulls(6)
     private val sHFloors: Array<Bitmap?> = arrayOfNulls(13)
+    private val sTags: Array<Bitmap?> = arrayOfNulls(16)
+
+    private fun tagBmp(n: Int): Bitmap {
+        val k = n.coerceIn(1, 15)
+        if (sTags[k] == null) sTags[k] = bmp("tag$k")
+        return sTags[k]!!
+    }
 
     private fun bmp(name: String): Bitmap {
         val id = resources.getIdentifier(name, "drawable", context.packageName)
@@ -286,7 +293,8 @@ class GameView(context: Context) : View(context) {
 
     private val sHouseNew: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
-        BitmapFactory.decodeResource(resources, R.drawable.house_forge)
+        BitmapFactory.decodeResource(resources, R.drawable.house_forge),
+        BitmapFactory.decodeResource(resources, R.drawable.house_anarchist)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -2277,6 +2285,9 @@ class GameView(context: Context) : View(context) {
         drawTex(canvas, if (under) sWallMossy else sWall, tmpRect)
         paint.color = Color.argb(if (under) 95 else 75, 0, 0, 0)
         canvas.drawRect(tmpRect, paint)
+        // Graffiti bombe sur le mur
+        val tg = world.tags[world.idx(gx, gy)]
+        if (tg != null) drawSprite(canvas, tagBmp(tg), rect.centerX(), rect.centerY(), tile * 0.85f, 235)
 
         // Torche : uniquement sur un mur qui BORDE une salle, accrochee sur sa face,
         // et seulement si la salle en question est deja decouverte.

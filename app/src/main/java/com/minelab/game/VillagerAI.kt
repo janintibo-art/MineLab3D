@@ -50,7 +50,8 @@ object VillagerAI {
             Perso("Rosa", "fermiere", 0.5f, 0.5f),
             Perso("Ulric", "garde", 0.3f, 0.7f),
             Perso("Nina", "couturiere", 0.7f, 0.2f),
-            Perso("Pip", "reveur", 0.9f, 0.1f)
+            Perso("Pip", "reveur", 0.9f, 0.1f),
+            Perso("Kaos", "punk", 0.8f, 0.9f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.
@@ -199,6 +200,14 @@ object VillagerAI {
             "J'ai encore reve de la mer qui parle...",
             "Les nuages dessinent des dragons, regarde.",
             "Et si le portail menait aux etoiles ?"
+        ),
+        "punk" to listOf(
+            "Je boycotte ce dialogue. ... Bon, ok, salut.",
+            "No futur ! Enfin sauf pour toi, t'es cool.",
+            "Le systeme du donjon nous exploite, reveille-toi !",
+            "J'ai tague le sous-sol. Ils ont rien vu.",
+            "Les coffres appartiennent a tout le monde !",
+            "Ni dieu, ni maitre, ni mini-demineur."
         )
     ) }
 

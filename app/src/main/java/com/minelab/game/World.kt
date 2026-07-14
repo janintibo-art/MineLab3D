@@ -70,6 +70,8 @@ class World(
     val decor = HashMap<Int, Pair<Int, Int>>()
     /** Sol de chaque maison (1..12). */
     val houseFloor = HashMap<Int, Int>()
+    /** Graffitis sur les murs : case -> numero de tag (1..15). */
+    val tags = HashMap<Int, Int>()
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val petSpawns = ArrayList<Pair<Int, Int>>()
@@ -451,6 +453,7 @@ class World(
         val vy = cy(islandPortal) + 7        // juste au nord de la place (le chemin est a +9)
         buildHouse(1, px - 4, vy)            // chaumiere
         buildHouse(2, px + 4, vy)            // forge
+        buildHouse(3, px + 7, vy + 5)        // la maison anarchiste, a l'ecart
     }
 
     private fun buildHouse(n: Int, x: Int, y: Int) {
@@ -476,7 +479,11 @@ class World(
         val rx0 = 1 + col * 13
         val ry0 = hy0 + 1 + row * 9
         if (ry0 + 8 >= hei || rx0 + 12 >= wid) return
-        houseFloor[n] = if (n == 2) 3 else 1     // forge : sol de pierre ; chaumiere : parquet
+        houseFloor[n] = when (n) {
+            2 -> 3        // forge : sol de pierre
+            3 -> 2        // maison anarchiste : sol sombre et crade
+            else -> 1     // chaumiere : parquet
+        }
         for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {
             val i = idx(x, y)
             grid[i] = FLOOR
@@ -486,6 +493,19 @@ class World(
         val exitCell = idx(rx0 + 6, ry0 + 7)
         houseExit[exitCell] = n
         houseEntry[n] = exitCell
+
+        // Le squat anarchiste : des graffitis partout sur les murs
+        if (n == 3) {
+            val wallTags = listOf(
+                Pair(rx0 + 1, ry0 - 1), Pair(rx0 + 4, ry0 - 1), Pair(rx0 + 7, ry0 - 1),
+                Pair(rx0 + 10, ry0 - 1), Pair(rx0 - 1, ry0 + 2), Pair(rx0 + 12, ry0 + 2),
+                Pair(rx0 - 1, ry0 + 5), Pair(rx0 + 12, ry0 + 5)
+            )
+            for ((k, sp) in wallTags.withIndex()) {
+                val (x, y) = sp
+                if (inside(x, y)) tags[idx(x, y)] = 1 + (k * 2 + seed.toInt().and(7)) % 15
+            }
+        }
     }
 
     /** Villageois et animaux de la place du village. */
@@ -503,6 +523,14 @@ class World(
             val (x, y) = sp
             val c = if (inside(x, y)) idx(x, y) else -1
             if (c >= 0 && grid[c] == FLOOR && !houseMats.containsKey(c)) npcSpawns.add(Pair(c, n + 1))
+        }
+        // Kaos, le punk, traine devant son squat
+        run {
+            val kx = px + 6
+            val ky = cy(islandPortal) + 13
+            if (inside(kx, ky) && grid[idx(kx, ky)] == FLOOR && !houseMats.containsKey(idx(kx, ky))) {
+                npcSpawns.add(Pair(idx(kx, ky), 11))
+            }
         }
         val aSpots = listOf(
             Pair(px - 7, villageCy + 1), Pair(px + 7, villageCy + 1), Pair(px + 1, villageCy + 8),

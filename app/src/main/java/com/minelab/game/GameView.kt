@@ -235,6 +235,11 @@ class GameView(context: Context) : View(context) {
         return sHFloors[n]!!
     }
 
+    private val sHouseNew: Array<Bitmap> = arrayOf(
+        BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
+        BitmapFactory.decodeResource(resources, R.drawable.house_forge)
+    )
+    @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house1),
         BitmapFactory.decodeResource(resources, R.drawable.house2),
@@ -2069,6 +2074,19 @@ class GameView(context: Context) : View(context) {
             drawSprite(canvas, decorBmp(dt, dn), rect.centerX(), rect.centerY() + dyy, size)
         }
 
+        // Les batiments : dessines sur leur case d'ancrage
+        val hn = world.houses[i]
+        if (hn != null) {
+            paint.color = Color.argb(70, 0, 0, 0)
+            canvas.drawOval(
+                rect.centerX() - tile * 1.3f, rect.centerY() + tile * 0.25f,
+                rect.centerX() + tile * 1.3f, rect.centerY() + tile * 0.6f, paint
+            )
+            drawSprite(
+                canvas, sHouseNew[(hn - 1) % sHouseNew.size],
+                rect.centerX(), rect.centerY() - tile * 1.05f, tile * 3.6f
+            )
+        }
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
         if (world.isIslandPortal(gx, gy)) drawTeleport(canvas)
     }
@@ -2627,7 +2645,8 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
-            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "La place du village. Touchez les habitants pour leur parler."
+            world.isInterior(hx, hy) -> "Vous etes a l'interieur. La porte du bas pour sortir."
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village : la chaumiere et la forge sont ouvertes !"
             world.isIsland(hx, hy) -> "L'ile ! Explorez la plage, les bois et la place au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
             world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"

@@ -397,6 +397,7 @@ class World(
         for (y in villageCy..villageCy + 6) paveDirt(px, y)
         for (x in px - 4..px + 4) paveDirt(x, villageCy + 6)
 
+        placeTwoHouses()
         placeVillagers()
         placeDecor()
     }
@@ -440,6 +441,53 @@ class World(
     }
 
     /** Les 10 maisons du village, le long des chemins. */
+    /**
+     * Les 2 premiers batiments du village : la CHAUMIERE (1) et la FORGE (2).
+     * Chaque maison occupe 3x2 cases au sol, avec sa porte (paillasson) devant,
+     * et possede un grand interieur vide de 12x8.
+     */
+    private fun placeTwoHouses() {
+        val px = cx(islandPortal)
+        val vy = cy(islandPortal) + 7        // juste au nord de la place (le chemin est a +9)
+        buildHouse(1, px - 4, vy)            // chaumiere
+        buildHouse(2, px + 4, vy)            // forge
+    }
+
+    private fun buildHouse(n: Int, x: Int, y: Int) {
+        if (!inside(x - 1, y - 1) || !inside(x + 1, y + 1)) return
+        // Empreinte au sol : 3 x 2 cases infranchissables
+        for (dy in -1..0) for (dx in -1..1) {
+            val c = idx(x + dx, y + dy)
+            grid[c] = WALL
+        }
+        houses[idx(x, y)] = n
+        // La porte : le paillasson juste devant
+        val mat = idx(x, y + 1)
+        grid[mat] = FLOOR
+        if (terrain[mat] != TER_NONE) terrain[mat] = TER_EARTH
+        houseMats[mat] = n
+        buildInterior(n)
+    }
+
+    /** L'interieur : une grande piece vide de 12x8, sol au choix de la maison. */
+    private fun buildInterior(n: Int) {
+        val col = (n - 1) % 3
+        val row = (n - 1) / 3
+        val rx0 = 1 + col * 13
+        val ry0 = hy0 + 1 + row * 9
+        if (ry0 + 8 >= hei || rx0 + 12 >= wid) return
+        houseFloor[n] = if (n == 2) 3 else 1     // forge : sol de pierre ; chaumiere : parquet
+        for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {
+            val i = idx(x, y)
+            grid[i] = FLOOR
+            terrain[i] = TER_WOOD
+            revealed.add(i)
+        }
+        val exitCell = idx(rx0 + 6, ry0 + 7)
+        houseExit[exitCell] = n
+        houseEntry[n] = exitCell
+    }
+
     /** Villageois et animaux de la place du village. */
     private fun placeVillagers() {
         val px = cx(islandPortal)
@@ -453,7 +501,8 @@ class World(
         )
         for ((n, sp) in vSpots.withIndex()) {
             val (x, y) = sp
-            if (inside(x, y) && grid[idx(x, y)] == FLOOR) npcSpawns.add(Pair(idx(x, y), n + 1))
+            val c = if (inside(x, y)) idx(x, y) else -1
+            if (c >= 0 && grid[c] == FLOOR && !houseMats.containsKey(c)) npcSpawns.add(Pair(c, n + 1))
         }
         val aSpots = listOf(
             Pair(px - 7, villageCy + 1), Pair(px + 7, villageCy + 1), Pair(px + 1, villageCy + 8),

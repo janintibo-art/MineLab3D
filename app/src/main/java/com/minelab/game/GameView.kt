@@ -41,6 +41,41 @@ class GameView(context: Context) : View(context) {
     private var startAtVillage = false
 
     private val prefs = context.getSharedPreferences("minelab", Context.MODE_PRIVATE)
+
+    /** Si une erreur survient, on l'affiche a l'ecran au lieu de fermer l'app. */
+    private var crashLog: String? = null
+
+    private fun crash(e: Throwable) {
+        crashLog = e.toString() + "\n" + e.stackTrace.take(14).joinToString("\n") { "  $it" }
+        invalidate()
+    }
+
+    private fun drawCrash(canvas: Canvas) {
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(20, 8, 10)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        paint.color = Color.rgb(255, 90, 80)
+        paint.textAlign = Paint.Align.LEFT
+        paint.isFakeBoldText = true
+        paint.textSize = height * 0.026f
+        canvas.drawText("ERREUR — envoyez une capture de cet ecran", width * 0.04f, height * 0.07f, paint)
+        paint.isFakeBoldText = false
+        paint.color = Color.WHITE
+        paint.textSize = height * 0.0135f
+        var y = height * 0.11f
+        for (raw in (crashLog ?: "").split("\n")) {
+            var line = raw
+            while (line.length > 64) {
+                canvas.drawText(line.take(64), width * 0.04f, y, paint)
+                line = line.drop(64)
+                y += height * 0.021f
+            }
+            canvas.drawText(line, width * 0.04f, y, paint)
+            y += height * 0.021f
+            if (y > height * 0.96f) break
+        }
+    }
     private val audio = Audio(context)
     private var showSettings = false
     private var showSudoku = false
@@ -537,6 +572,7 @@ class GameView(context: Context) : View(context) {
 
     private fun loadGame(): Boolean {
         if (!hasSave()) return false
+        try {
         world = World(
             prefs.getInt("hw", 16),
             prefs.getInt("hh", 16),
@@ -622,6 +658,12 @@ class GameView(context: Context) : View(context) {
         state = PLAYING
         showMsg("Partie chargee. Bon retour, $playerName !")
         return true
+        } catch (@Suppress("UNUSED_PARAMETER") e: Throwable) {
+            prefs.edit().putBoolean("has", false).apply()
+            state = TITLE
+            showMsg("Sauvegarde d'une ancienne version : faites NOUVELLE PARTIE.")
+            return false
+        }
     }
 
     // ============================================================ LAYOUT
@@ -1085,7 +1127,7 @@ class GameView(context: Context) : View(context) {
         if (walkers.isEmpty()) return
         // Bousculade : le heros traverse un villageois grognon -> il le retient
         for (w in walkers) {
-            if (w.kind != 0) continue
+            if (w.kind != 0 || villagers.isEmpty()) continue
             if (hypot(w.x - fx, w.y - fy) < 0.55f && w.talk <= 0f && dialogueT <= 0f) {
                 val p = villagers[(w.id - 1) % villagers.size]
                 VillagerAI.bousculer(p)
@@ -1132,7 +1174,7 @@ class GameView(context: Context) : View(context) {
     private fun talkTo(w: Walker) {
         dialogueX = w.x
         dialogueY = w.y
-        if (w.kind == 0) {
+        if (w.kind == 0 && villagers.isNotEmpty()) {
             val p = villagers[(w.id - 1) % villagers.size]
             dialogue = VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
             dialogueName = p.nom
@@ -1597,6 +1639,8 @@ class GameView(context: Context) : View(context) {
         val now = System.nanoTime()
         val dt = ((now - lastTime) / 1e9).toFloat().coerceIn(0f, 0.05f)
         lastTime = now
+        if (crashLog != null) { drawCrash(canvas); return }
+        try {
         update(dt)
 
         val w = width.toFloat()
@@ -1641,6 +1685,7 @@ class GameView(context: Context) : View(context) {
         if (gameOver || victory) drawEnd(canvas, w, h)
 
         postInvalidateOnAnimation()
+        } catch (e: Throwable) { crash(e) }
     }
 
     // ---------------------------------------------------------- habillage donjon
@@ -3289,6 +3334,7 @@ class GameView(context: Context) : View(context) {
         hypot(x - joyCenter[0], y - joyCenter[1]) <= joyRadius * 1.35f
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (crashLog != null) return true
         val am = e.actionMasked
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&

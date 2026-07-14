@@ -481,6 +481,7 @@ class World(
         buildHouse(1, px - 4, vy)            // chaumiere
         buildHouse(2, px + 4, vy)            // forge
         buildHouse(3, px + 7, vy + 5)        // la maison anarchiste, a l'ecart
+        buildHouse(4, px - 7, vy + 5)        // la cabane d'alchimiste, de l'autre cote
 
         // Les deux distributeurs de 8.6, de part et d'autre du portail
         val py = cy(islandPortal)
@@ -519,6 +520,7 @@ class World(
         houseFloor[n] = when (n) {
             2 -> 3        // forge : sol de pierre
             3 -> 2        // maison anarchiste : sol sombre et crade
+            4 -> 5        // cabane d'alchimiste
             else -> 1     // chaumiere : parquet
         }
         for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {
@@ -547,11 +549,33 @@ class World(
         }
     }
 
+    /** Une case de l'interieur n pour y placer un habitant. */
+    private fun interiorSpot(n: Int, k: Int): Int {
+        val rx0 = 1 + ((n - 1) % 3) * 13
+        val ry0 = hy0 + 1 + ((n - 1) / 3) * 9
+        val x = rx0 + 3 + k * 4
+        val y = ry0 + 3
+        if (!inside(x, y)) return -1
+        val c = idx(x, y)
+        return if (grid[c] == FLOOR) c else -1
+    }
+
     /** Villageois et animaux de la place du village. */
     private fun placeVillagers() {
         val px = cx(islandPortal)
         // (Les batiments seront ajoutes un par un, plus tard.)
         // Villageois et animaux dans le village
+        // Qui habite ou : chaumiere -> Rosa (7) + Milo (6) ; forge -> Bran (2) ;
+        // cabane d'alchimiste -> Lila (3). Kaos (11) traine devant son squat.
+        val residents = mapOf(1 to listOf(7, 6), 2 to listOf(2), 4 to listOf(3))
+        val indoorIds = residents.values.flatten().toSet()
+        for ((hn, ids) in residents) {
+            for ((k, id) in ids.withIndex()) {
+                val c = interiorSpot(hn, k)
+                if (c >= 0) npcSpawns.add(Pair(c, id))
+            }
+        }
+        val outdoorIds = (1..10).filter { it !in indoorIds }
         val vSpots = listOf(
             Pair(px - 4, villageCy), Pair(px + 4, villageCy), Pair(px, villageCy + 3),
             Pair(px - 6, villageCy + 3), Pair(px + 6, villageCy + 3), Pair(px - 1, villageCy - 4),
@@ -559,9 +583,12 @@ class World(
             Pair(px - 6, villageCy - 3)
         )
         for ((n, sp) in vSpots.withIndex()) {
+            if (n >= outdoorIds.size) break
             val (x, y) = sp
             val c = if (inside(x, y)) idx(x, y) else -1
-            if (c >= 0 && grid[c] == FLOOR && !houseMats.containsKey(c)) npcSpawns.add(Pair(c, n + 1))
+            if (c >= 0 && grid[c] == FLOOR && !houseMats.containsKey(c)) {
+                npcSpawns.add(Pair(c, outdoorIds[n]))
+            }
         }
         // Kaos, le punk, traine devant son squat
         run {

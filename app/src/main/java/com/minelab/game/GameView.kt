@@ -305,7 +305,8 @@ class GameView(context: Context) : View(context) {
     private val sHouseNew: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.house_cottage),
         BitmapFactory.decodeResource(resources, R.drawable.house_forge),
-        BitmapFactory.decodeResource(resources, R.drawable.house_anarchist)
+        BitmapFactory.decodeResource(resources, R.drawable.house_anarchist),
+        BitmapFactory.decodeResource(resources, R.drawable.house_alchemist)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -1254,7 +1255,8 @@ class GameView(context: Context) : View(context) {
                         val nx = cx0 + ddx
                         val ny = cy0 + ddy
                         world.isFloor(nx, ny) && !world.houses.containsKey(world.idx(nx, ny)) &&
-                                !world.props.containsKey(world.idx(nx, ny)) && world.isIsland(nx, ny)
+                                !world.props.containsKey(world.idx(nx, ny)) &&
+                                (world.isIsland(nx, ny) || world.isInterior(nx, ny))
                     }
                     if (opts.isNotEmpty()) {
                         val (ddx, ddy) = opts[(time * 13f + w.id * 7f).toInt() % opts.size]

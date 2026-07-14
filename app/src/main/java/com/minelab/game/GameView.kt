@@ -47,6 +47,7 @@ class GameView(context: Context) : View(context) {
 
     private fun crash(e: Throwable) {
         crashLog = e.toString() + "\n" + e.stackTrace.take(14).joinToString("\n") { "  $it" }
+        try { prefs.edit().putString("lastcrash", crashLog).commit() } catch (t: Throwable) { }
         invalidate()
     }
 
@@ -59,7 +60,10 @@ class GameView(context: Context) : View(context) {
         paint.textAlign = Paint.Align.LEFT
         paint.isFakeBoldText = true
         paint.textSize = height * 0.026f
-        canvas.drawText("ERREUR — envoyez une capture de cet ecran", width * 0.04f, height * 0.07f, paint)
+        canvas.drawText("ERREUR — envoyez une capture de cet ecran", width * 0.04f, height * 0.055f, paint)
+        paint.color = Color.rgb(255, 200, 120)
+        paint.textSize = height * 0.016f
+        canvas.drawText("(toucher l'ecran pour effacer et reessayer)", width * 0.04f, height * 0.082f, paint)
         paint.isFakeBoldText = false
         paint.color = Color.WHITE
         paint.textSize = height * 0.0135f
@@ -385,6 +389,7 @@ class GameView(context: Context) : View(context) {
 
     init {
         isFocusable = true
+        crashLog = prefs.getString("lastcrash", null)
         playerName = prefs.getString("name", "Heros") ?: "Heros"
         difficulty = prefs.getInt("diff", 1)
         godMode = prefs.getBoolean("god", false)
@@ -3334,7 +3339,25 @@ class GameView(context: Context) : View(context) {
         hypot(x - joyCenter[0], y - joyCenter[1]) <= joyRadius * 1.35f
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (crashLog != null) return true
+        if (crashLog != null) {
+            // toucher l'ecran d'erreur l'efface (pour reessayer)
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                crashLog = null
+                prefs.edit().remove("lastcrash").apply()
+                state = TITLE
+                invalidate()
+            }
+            return true
+        }
+        return try {
+            handleTouch(e)
+        } catch (t: Throwable) {
+            crash(t)
+            true
+        }
+    }
+
+    private fun handleTouch(e: MotionEvent): Boolean {
         val am = e.actionMasked
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&

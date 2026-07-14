@@ -11,6 +11,18 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Filet de securite : toute erreur fatale est memorisee et sera
+        // affichee au prochain lancement (ecran rouge dans le jeu).
+        val prefs = getSharedPreferences("minelab", MODE_PRIVATE)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, e ->
+            try {
+                val log = e.toString() + "\n" +
+                        e.stackTrace.take(14).joinToString("\n") { "  $it" }
+                prefs.edit().putString("lastcrash", log).commit()
+            } catch (t: Throwable) { }
+            previous?.uncaughtException(thread, e)
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         view = GameView(this)
         @Suppress("DEPRECATION")

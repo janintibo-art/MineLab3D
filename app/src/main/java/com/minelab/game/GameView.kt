@@ -163,6 +163,12 @@ class GameView(context: Context) : View(context) {
     private var dlgWalkerIdx = -1        // a qui repond-on ?
     private var dlgReponses: List<VillagerAI.Reponse> = emptyList()   // effets des choix
     private var vmemRestore = true       // restaurer les souvenirs (pas en nouvelle partie)
+    // --- les visites guidees : "Suis-moi !" ---
+    private var guideWkIdx = -1          // le walker qui nous guide (-1 : personne)
+    private var guideDest = -1           // sa destination (case)
+    private var guideDoneLine = ""       // ce qu'il dit en arrivant
+    private var guideRepathT = 0f        // recalcul du chemin
+    private val guidedDone = HashSet<String>()   // visites deja faites (session)
     private var dlgKind = 0              // 0 papotage ; 1 menu du mage ; 2 question de cours
     private var dlgElems: List<Int> = emptyList()   // elements proposes au menu du mage
     private var dlgElem = -1             // element du cours en attente de reponse
@@ -1503,11 +1509,61 @@ class GameView(context: Context) : View(context) {
                 if (p.grognon > 0.5f) talkTo(w)
             }
         }
+        // Le GUIDE : il marche vers sa destination et attend le heros
+        if (guideWkIdx >= 0) {
+            val g = walkers.getOrNull(guideWkIdx)
+            if (g == null || world.isInterior(hx, hy)) {
+                guideWkIdx = -1   // visite annulee (guide disparu ou heros rentre)
+            } else {
+                val gx = g.x.toInt()
+                val gy = g.y.toInt()
+                val destX = world.cx(guideDest)
+                val destY = world.cy(guideDest)
+                if (abs(g.x - (destX + 0.5f)) < 0.35f && abs(g.y - (destY + 0.5f)) < 0.35f) {
+                    // Arrive ! Il presente sa decouverte
+                    dialogue = guideDoneLine
+                    dialogueName = persoFor(g)?.nom ?: ""
+                    setBubbleAt(g)
+                    persoFor(g)?.nom?.let { guidedDone.add(it) }
+                    audio.play("chest")
+                    guideWkIdx = -1
+                } else if (hypot(g.x - fx, g.y - fy) > 4.5f) {
+                    g.tx = g.x; g.ty = g.y   // il vous attend
+                } else {
+                    guideRepathT -= dt
+                    val atNode = hypot(g.tx - g.x, g.ty - g.y) < 0.08f
+                    if (atNode && guideRepathT <= 0f) {
+                        guideRepathT = 0.25f
+                        val path2 = world.findPath(gx, gy, destX, destY)
+                        val step = path2?.firstOrNull()
+                        if (step != null) {
+                            g.tx = step.first + 0.5f
+                            g.ty = step.second + 0.5f
+                            g.dir = if (step.first != gx) (if (step.first > gx) 3 else 2)
+                                    else (if (step.second > gy) 0 else 1)
+                            g.wait = 0f
+                            g.talk = 0f
+                        } else if (path2 != null && path2.isEmpty()) {
+                            guideWkIdx = -1
+                        }
+                    }
+                }
+            }
+        }
         // On n'anime que ce qui est proche du heros
         for (w in walkers) {
             w.talk = (w.talk - dt).coerceAtLeast(0f)
             if (abs(w.x - fx) > 16f || abs(w.y - fy) > 16f) continue
             if (w.talk > 0f) continue
+            if (walkers.indexOf(w) == guideWkIdx) {
+                // le guide avance sans flaner (pas d'errance)
+                val dxg = w.tx - w.x
+                val dyg = w.ty - w.y
+                val spg = 1.6f * dt
+                w.x += sign(dxg) * min(abs(dxg), spg)
+                w.y += sign(dyg) * min(abs(dyg), spg)
+                continue
+            }
             val dx = w.tx - w.x
             val dy = w.ty - w.y
             val d = hypot(dx, dy)
@@ -1629,12 +1685,91 @@ class GameView(context: Context) : View(context) {
         return f
     }
 
-    /** Propose les reponses d'une Replique de l'IA. */
+    /** Propose les reponses d'une Replique de l'IA (+ visite guidee eventuelle). */
     private fun offerReplique(rep: VillagerAI.Replique, w: Walker) {
         dlgWalkerIdx = walkers.indexOf(w)
         dlgKind = 0
         dlgReponses = rep.reponses
-        dlgChoices = rep.reponses.map { it.texte }
+        val labels = rep.reponses.map { it.texte }.toMutableList()
+        val offre = guideOfferFor(w)
+        if (offre != null && labels.size < 4) labels.add("\uD83D\uDC63 " + offre.first)
+        dlgChoices = labels
+    }
+
+    /**
+     * La visite guidee que CE personnage peut proposer, selon l'etat du jeu :
+     * (phrase d'invitation, case de destination, phrase d'arrivee), ou null.
+     * Seuls les personnages dehors, sur l'ile, peuvent guider.
+     */
+    private fun guideOfferFor(w: Walker): Triple<String, Int, String>? {
+        if (guideWkIdx >= 0) return null
+        val wx = w.x.toInt()
+        val wy = w.y.toInt()
+        if (!world.isIsland(wx, wy) || world.isInterior(wx, wy)) return null
+        val nom = persoFor(w)?.nom ?: return null
+        if (nom in guidedDone) return null
+
+        fun near(cell: Int): Int {   // une case praticable adjacente (ou la case elle-meme)
+            if (cell < 0) return -1
+            if (world.isWalkable(world.cx(cell), world.cy(cell))) return cell
+            for ((dx, dy) in listOf(Pair(0, 1), Pair(0, -1), Pair(1, 0), Pair(-1, 0))) {
+                val nx = world.cx(cell) + dx
+                val ny = world.cy(cell) + dy
+                if (world.isWalkable(nx, ny)) return world.idx(nx, ny)
+            }
+            return -1
+        }
+        val squatMat = world.houseMats.entries.firstOrNull { it.value == 3 }?.key ?: -1
+        val vendorCell = world.vendors.entries.firstOrNull { it.value == 1 }?.key ?: -1
+
+        val offre: Triple<String, Int, String>? = when {
+            (nom == "Kaos" || (w.kind == 2)) && !world.sprayTaken -> Triple(
+                "Viens, on va au squat : une bombe de peinture t'attend. On va TOUT taguer !",
+                near(squatMat),
+                "Voila le squat. La bombe est a l'interieur : sers-toi, l'artiste !"
+            )
+            w.kind == 2 && spraysDone >= 3 && !world.shroomTaken -> Triple(
+                "Suis-moi... j'ai un pote qui a des CHAMPIS. Il t'aime bien, en plus.",
+                near(squatMat),
+                "C'est ici, chez Kaos. Ses champis sont pour les vrais. Entre !"
+            )
+            nom == "Tomas" && !metPierre -> Triple(
+                "Suis-moi a la plage : Pierre a un GROS souci. Une histoire de... slip.",
+                near(world.pierreCell),
+                "Voila Pierre. Sois delicat, hein. C'est personnel."
+            )
+            nom == "Marthe" && energyCount == 0 && vendorsUsed.isEmpty() -> Triple(
+                "Viens, je t'offre une 8.6 au distributeur ! Ca requinque.",
+                near(vendorCell),
+                "Voila la machine. La premiere est pour toi : touche-la !"
+            )
+            nom == "Ulric" && !world.dungeon2Revealed -> Triple(
+                "Suis-moi. Au nord-ouest, il y a une chose que tu dois voir. Ouvre l'oeil.",
+                near(world.dungeon2Cell),
+                "La. Cette entree est scellee depuis toujours. Je la surveille. Toi aussi, maintenant."
+            )
+            nom == "Nina" && boatCell >= 0 && boatCell == world.boatCell -> Triple(
+                "Suis-moi au rivage : une barque attend. La mer a des choses a te montrer...",
+                if (boatCell >= 0) near(world.idx(world.cx(boatCell), world.cy(boatCell) - 1)) else -1,
+                "La barque ! L'ile lointaine est au sud. Ramene-moi un coquillage !"
+            )
+            else -> null
+        }
+        return if (offre != null && offre.second >= 0) offre else null
+    }
+
+    /** Le personnage se met en route : le heros n'a plus qu'a suivre. */
+    private fun startGuide(w: Walker, dest: Int, doneLine: String) {
+        guideWkIdx = walkers.indexOf(w)
+        guideDest = dest
+        guideDoneLine = doneLine
+        guideRepathT = 0f
+        dlgChoices = emptyList()
+        dlgReponses = emptyList()
+        dialogue = listOf("Suis-moi !", "Par ici, reste derriere moi !", "C'est parti, suis-moi !")[npcRnd.nextInt(3)]
+        dialogueName = persoFor(w)?.nom ?: ""
+        setBubbleAt(w)
+        audio.play("pickup")
     }
 
     /** Le Perso (VillagerAI) derriere un walker, s'il en a un. */
@@ -1728,6 +1863,11 @@ class GameView(context: Context) : View(context) {
         when (kind) {
             0 -> {   // papotage generique, avec TOUT le monde
                 val p = persoFor(w) ?: return
+                if (k >= dlgReponses.size) {   // le choix "Suis-moi" ajoute en fin de liste
+                    val offre = guideOfferFor(w)
+                    if (offre != null) startGuide(w, offre.second, offre.third)
+                    return
+                }
                 val effet = dlgReponses.getOrNull(k)?.effet ?: VillagerAI.EF_BYE
                 val rep = try { VillagerAI.reagir(p, effet, npcRnd) } catch (t: Throwable) {
                     VillagerAI.Replique("...", emptyList())
@@ -1826,6 +1966,15 @@ class GameView(context: Context) : View(context) {
                 "Belle journee, non ?"
             })
             dialogueName = p.nom
+            // Kaos ne papote pas, mais il peut proposer LA visite du squat
+            if (p.nom == "Kaos" && dlgChoices.isEmpty()) {
+                guideOfferFor(w)?.let { off ->
+                    dlgWalkerIdx = walkers.indexOf(w)
+                    dlgKind = 0
+                    dlgReponses = emptyList()
+                    dlgChoices = listOf("\uD83D\uDC63 " + off.first)
+                }
+            }
         } else if (w.kind == 0) {
             dialogue = listOf(
                 "Bonjour, voyageur !", "Belle journee !", "Bienvenue au village !"
@@ -4234,6 +4383,7 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
+            guideWkIdx >= 0 -> "Suivez votre guide, il connait le chemin !"
             onBoat -> "En mer ! Touchez l'eau pour ramer. L'ile lointaine est au sud..."
             !world.isInterior(hx, hy) && world.isIsland(hx, hy) && hy >= world.iy0 + 38 ->
                 "L'ILE LOINTAINE. Le Grand Arbre veille... et il a une porte."

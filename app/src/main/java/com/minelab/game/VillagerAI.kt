@@ -309,6 +309,56 @@ object VillagerAI {
             "Les nuages dessinent des dragons, regarde.",
             "Et si le portail menait aux etoiles ?"
         ),
+        "chevalier" to listOf(
+            "Par mon honneur, ce village sera defendu !",
+            "Mon armure grince. C'est le sel marin. Ou l'age.",
+            "Un chevalier sans dragon, c'est long, les journees."
+        ),
+        "magicienne" to listOf(
+            "Zephyrin m'a tout appris. Sauf le rangement.",
+            "Je lis l'avenir dans les vagues. Il sera mouille.",
+            "La magie, c'est 10% de talent et 90% de sourcils fronces."
+        ),
+        "guerrier" to listOf(
+            "Mon marteau s'ennuie. Trouve-lui du travail.",
+            "Dans ma montagne, on saluait plus fort que ca.",
+            "La biere d'ici est etrange. 8.6, tu connais ?"
+        ),
+        "archere" to listOf(
+            "Je peux toucher une pomme a cent pas. Les mouettes le savent.",
+            "Le vent d'ici ment. Mes fleches s'en souviennent.",
+            "Vise toujours plus haut. Sauf au plafond."
+        ),
+        "barde" to listOf(
+            "Je compose une ballade sur le SLIP legendaire !",
+            "Tu veux un couplet ? Tout le monde veut un couplet.",
+            "La rime en 'ectoplasme' me resiste encore."
+        ),
+        "paladine" to listOf(
+            "La lumiere me guide. Le phare aussi, la nuit.",
+            "J'ai jure de proteger la veuve, l'orphelin et le distributeur.",
+            "Mon serment m'interdit de mentir. Ta cape est affreuse."
+        ),
+        "rodeur" to listOf(
+            "J'ai piste un ecureuil trois jours. Il m'a eu.",
+            "Les traces ne mentent jamais. Les mouettes, si.",
+            "Je dors d'un oeil. L'autre surveille Barnabe."
+        ),
+        "aventuriere" to listOf(
+            "J'ai deja ouvert des coffres plus gros que toi.",
+            "Le danger, c'est mon metier. Les impots aussi, helas.",
+            "Cette ile cache un secret. Je le SENS. La, sous mes bottes."
+        ),
+        "moine" to listOf(
+            "Om... pardon, tu disais ?",
+            "La paix interieure, ca se muscle. Comme les mollets.",
+            "J'ai fait voeu de silence, une fois. Douze minutes."
+        ),
+        "valkyrie" to listOf(
+            "SKAL ! Pardon, reflexe.",
+            "Dans mon pays, la mer est SOLIDE l'hiver. Imagine.",
+            "Ton epee est correcte. Ton cri de guerre, a travailler."
+        ),
         "magicien" to listOf(
             "Les runes me chatouillent. Bon signe. Ou une allergie.",
             "J'ai transforme une mouette en theiere. Elle vole ENCORE.",
@@ -389,6 +439,86 @@ object VillagerAI {
         "tags" to "J'ai vu les tags du sous-sol... c'est toi, hein ? Je ne dirai rien. Beau travail.",
         "magie" to "Il parait que le mage de l'arbre t'apprend la MAGIE ! Montre ! ... Non, pas ici, pas ici !",
         "marin" to "On t'a vu RAMER vers l'ile lointaine ! Plus personne n'y allait depuis des lunes."
+    ) }
+
+    /** Les sujets PERSONNELS : chaque habitant a ses obsessions a lui. */
+    private val PERSOS: Map<String, List<String>> by lazy { mapOf(
+        "Marthe" to listOf(
+            "Je teste une soupe aux algues. Les courageux sont invites.",
+            "Mon auberge aura des lits moelleux comme la mie fraiche.",
+            "Un jour, ce village sentira le pain chaud jusqu'a la mer."
+        ),
+        "Bran" to listOf(
+            "Ce que je forge tient cent ans. Comme mes rancunes.",
+            "Le feu, ca ne se commande pas. Ca se merite.",
+            "Ton epee ? Je l'entends grincer d'ici. Reviens me voir."
+        ),
+        "Lila" to listOf(
+            "Les champignons de Kaos m'obsedent. Scientifiquement, hein.",
+            "Je note TOUT dans mon herbier. Meme toi, tu y es.",
+            "Sens cette fleur. Non ? Tant pis pour toi."
+        ),
+        "Tomas" to listOf(
+            "Pierre et Franki pechent MAL. Mais ne leur dis pas.",
+            "Mes bottes-pots-de-fleurs, c'est de l'ART, compris ?",
+            "La mer donne, la mer reprend. Surtout les slips, parait-il."
+        ),
+        "Agathe" to listOf(
+            "De mon temps, le portail n'existait pas. On s'ennuyait FERME.",
+            "Mes genoux predisent la pluie. Fiables a 40%.",
+            "Approche, que je te regarde. Hm. Tu manges assez ?"
+        ),
+        "Milo" to listOf(
+            "J'ai une cachette SECRETE ! ... Oups.",
+            "Quand je serai grand, je serai HEROS. Ou mouette.",
+            "T'as vu l'entree scellee au nord-ouest ?! Moi OUI !"
+        ),
+        "Rosa" to listOf(
+            "Mes poules ont des prenoms. Ne t'attache pas a Josette.",
+            "Le punk, ca fait pondre. C'est prouve. Par moi.",
+            "Un potager, c'est un donjon en plus lent."
+        ),
+        "Ulric" to listOf(
+            "Je surveille cette ile depuis douze ans. Zero invasion. Efficace.",
+            "L'entree scellee, au nord-ouest ? Je la surveille AUSSI.",
+            "Un garde ne dort jamais. Il repose ses paupieres."
+        ),
+        "Nina" to listOf(
+            "Je reve d'une cape en fibres d'algues. Ne ris pas.",
+            "Tes coutures sont une honte. Passe me voir, gratuit.",
+            "La mode d'ici a cent ans de retard. Je compte bien aider."
+        ),
+        "Pip" to listOf(
+            "Cette nuit, j'ai reve que l'arbre marchait...",
+            "Kaos dit que je squatte. Moi je dis que j'habite POETIQUEMENT.",
+            "Si tu ecoutes les coquillages, ils racontent la meteo d'hier."
+        ),
+        "Kaos" to listOf(
+            "Le village m'appelle 'le punk'. Ils ont RAISON.",
+            "Mes champis ? Bio. Locaux. Revolutionnaires.",
+            "Un jour je monterai un groupe. Nom provisoire : LES MINES."
+        )
+    ) }
+
+    /** Les tics de langage : la petite phrase qui signe chaque personnage. */
+    private val SIGNATURE: Map<String, List<String>> by lazy { mapOf(
+        "Marthe" to listOf("Comme dirait ma soupe.", "Ca creuse, tout ca !"),
+        "Bran" to listOf("Hmph.", "*fait sonner l'enclume*"),
+        "Lila" to listOf("Tisane ?", "*note dans l'herbier*"),
+        "Tomas" to listOf("Comme la maree.", "*regarde ses bottes avec fierte*"),
+        "Agathe" to listOf("De mon temps, deja.", "*hoche la tete lentement*"),
+        "Milo" to listOf("TROP BIEN !!", "*sautille*"),
+        "Rosa" to listOf("Mes poules en gloussent.", "*compte ses poules du regard*"),
+        "Ulric" to listOf("R.A.S.", "*scrute l'horizon*"),
+        "Nina" to listOf("Ca s'assortirait avec ta cape.", "*mesure du regard*"),
+        "Pip" to listOf("...", "*regarde les nuages*"),
+        "Kaos" to listOf("No futur.", "Oi !"),
+        "Maitre Zephyrin" to listOf("*etincelles*", "PAS la fiole verte !"),
+        "Sire Aldric" to listOf("Par mon honneur !", "*salue*"),
+        "Barnabe" to listOf("*gratte trois accords*", "Ca rime, en plus !"),
+        "Freya" to listOf("SKAL !", "*frappe son bouclier*"),
+        "Cedric" to listOf("Om.", "*inspire longuement*"),
+        "Riff" to listOf("Oi oi oi !", "*ajuste sa crete*")
     ) }
 
     private val RX by lazy { Regex("\\{(\\w+)\\}") }
@@ -564,6 +694,10 @@ object VillagerAI {
         var t = texteBrut
         if (t == m.derniereLigne && t.length < 80) t = "$t ... Oui, je me repete. L'age !"
         m.derniereLigne = texteBrut
+        val sig = SIGNATURE[p.nom]
+        if (sig != null && t.length < 95 && r.nextFloat() < 0.32f) {
+            t = "$t ${sig[r.nextInt(sig.size)]}"
+        }
         return Replique(t, reponsesPour(type, p, r))
     }
 
@@ -584,10 +718,16 @@ object VillagerAI {
         return fab(p, prefixe + expanser(POTINS[k].first, r), "potin", r)
     }
 
-    /** Une ligne de metier, avec la memoire du sujet. */
+    /** Une ligne de metier OU un sujet personnel : chacun ses obsessions. */
     private fun ligneMetier(p: Perso, r: Random): Replique {
-        val lignes = METIERS[p.metier] ?: listOf("Le travail, toujours le travail.")
-        p.memoire.dernierSujet = "son metier"
+        val perso = PERSOS[p.nom]
+        val lignes = if (perso != null && r.nextFloat() < 0.5f) {
+            p.memoire.dernierSujet = "ses passions"
+            perso
+        } else {
+            p.memoire.dernierSujet = "son metier"
+            METIERS[p.metier] ?: perso ?: listOf("Le travail, toujours le travail.")
+        }
         return fab(p, lignes[r.nextInt(lignes.size)], "metier", r)
     }
 

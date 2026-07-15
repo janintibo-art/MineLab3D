@@ -2049,6 +2049,34 @@ class GameView(context: Context) : View(context) {
                 val rep = try { VillagerAI.reagir(p, effet, npcRnd, time) } catch (t: Throwable) {
                     VillagerAI.Replique("...", emptyList())
                 }
+                // CONTAGION SOCIALE : la reaction rejaillit sur le cercle du PNJ
+                val socialDelta = when (effet) {
+                    VillagerAI.EF_MOQUE -> -2
+                    VillagerAI.EF_TRAHISON -> -3
+                    VillagerAI.EF_COMPLIMENT -> 1
+                    VillagerAI.EF_PROMESSE -> 2
+                    else -> 0
+                }
+                if (socialDelta != 0) {
+                    try { VillagerAI.propagerAction(villagers, p.nom, socialDelta, time) } catch (t: Throwable) { }
+                    // Le village jase de la maniere dont on traite les gens
+                    try {
+                        if (socialDelta <= -2) {
+                            val ami = VillagerAI.amiDe(p.nom)
+                            if (ami != null) noteRumeur(
+                                "social_${p.nom}_${time.toInt() / 30}",
+                                "le heros a mal traite ${p.nom}... ${ami} n'a pas apprecie du tout !",
+                                false
+                            )
+                        } else if (socialDelta >= 2) {
+                            noteRumeur(
+                                "social_${p.nom}_${time.toInt() / 30}",
+                                "le heros et ${p.nom} sont devenus tres proches, parait-il !",
+                                true
+                            )
+                        }
+                    } catch (t: Throwable) { }
+                }
                 dialogue = rep.texte
                 dialogueName = p.nom
                 setBubbleAt(w)

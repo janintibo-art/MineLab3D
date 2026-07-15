@@ -70,7 +70,8 @@ object VillagerAI {
         val nom: String,
         val metier: String,          // cle de sa grammaire de metier
         val bavard: Float,           // 0 muet .. 1 moulin a paroles
-        val grognon: Float           // 0 adorable .. 1 rabat-joie
+        val grognon: Float,          // 0 adorable .. 1 rabat-joie
+        val faction: String = "village"   // village, punks, guilde, taverne, marchands, solo
     ) {
         val memoire = Memoire()
     }
@@ -89,39 +90,39 @@ object VillagerAI {
             Perso("Ulric", "garde", 0.3f, 0.7f),
             Perso("Nina", "couturiere", 0.7f, 0.2f),
             Perso("Pip", "reveur", 0.9f, 0.1f),
-            Perso("Kaos", "punk", 0.8f, 0.9f),
+            Perso("Kaos", "punk", 0.8f, 0.9f, "punks"),
             // La bande du PUNK CLUB (sprites punk1..7)
-            Perso("Riff", "punk", 0.7f, 0.5f),
-            Perso("Vex", "punk", 0.8f, 0.4f),
-            Perso("Sid", "punk", 0.6f, 0.6f),
-            Perso("Brik", "punk", 0.4f, 0.8f),
-            Perso("Nox", "punk", 0.3f, 0.7f),
-            Perso("Patch", "punk", 1.0f, 0.1f),
-            Perso("Krust", "punk", 0.3f, 0.9f),
+            Perso("Riff", "punk", 0.7f, 0.5f, "punks"),
+            Perso("Vex", "punk", 0.8f, 0.4f, "punks"),
+            Perso("Sid", "punk", 0.6f, 0.6f, "punks"),
+            Perso("Brik", "punk", 0.4f, 0.8f, "punks"),
+            Perso("Nox", "punk", 0.3f, 0.7f, "punks"),
+            Perso("Patch", "punk", 1.0f, 0.1f, "punks"),
+            Perso("Krust", "punk", 0.3f, 0.9f, "punks"),
             // Les 10 heros de la GUILDE (indices 18 a 27)
-            Perso("Sire Aldric", "chevalier", 0.6f, 0.3f),
-            Perso("Morgane", "magicienne", 0.5f, 0.4f),
-            Perso("Thorin", "guerrier", 0.4f, 0.7f),
-            Perso("Elara", "archere", 0.7f, 0.2f),
-            Perso("Barnabe", "barde", 1.0f, 0.0f),
-            Perso("Ysolde", "paladine", 0.6f, 0.3f),
-            Perso("Gareth", "rodeur", 0.3f, 0.5f),
-            Perso("Luna", "aventuriere", 0.8f, 0.2f),
-            Perso("Cedric", "moine", 0.7f, 0.1f),
-            Perso("Freya", "valkyrie", 0.5f, 0.6f),
+            Perso("Sire Aldric", "chevalier", 0.6f, 0.3f, "guilde"),
+            Perso("Morgane", "magicienne", 0.5f, 0.4f, "guilde"),
+            Perso("Thorin", "guerrier", 0.4f, 0.7f, "guilde"),
+            Perso("Elara", "archere", 0.7f, 0.2f, "guilde"),
+            Perso("Barnabe", "barde", 1.0f, 0.0f, "guilde"),
+            Perso("Ysolde", "paladine", 0.6f, 0.3f, "guilde"),
+            Perso("Gareth", "rodeur", 0.3f, 0.5f, "guilde"),
+            Perso("Luna", "aventuriere", 0.8f, 0.2f, "guilde"),
+            Perso("Cedric", "moine", 0.7f, 0.1f, "guilde"),
+            Perso("Freya", "valkyrie", 0.5f, 0.6f, "guilde"),
             // Le professeur de magie du Grand Arbre (indice 28)
-            Perso("Maitre Zephyrin", "magicien", 1.0f, 0.6f),
+            Perso("Maitre Zephyrin", "magicien", 1.0f, 0.6f, "solo"),
             // La TAVERNE : le tavernier (29) et ses 6 clients (30..35)
-            Perso("Grimbeard", "tavernier", 0.9f, 0.6f),
-            Perso("Vieux Rowhere", "ivrogne", 1.0f, 0.3f),
-            Perso("Sombre", "voleuse", 0.5f, 0.7f),
-            Perso("Ferra", "forgeronne", 0.6f, 0.8f),
-            Perso("Krogg", "mercenaire", 0.4f, 0.9f),
-            Perso("Aldemar", "noble", 0.7f, 0.5f),
-            Perso("Lyria", "barde", 1.0f, 0.1f),
+            Perso("Grimbeard", "tavernier", 0.9f, 0.6f, "taverne"),
+            Perso("Vieux Rowhere", "ivrogne", 1.0f, 0.3f, "taverne"),
+            Perso("Sombre", "voleuse", 0.5f, 0.7f, "taverne"),
+            Perso("Ferra", "forgeronne", 0.6f, 0.8f, "taverne"),
+            Perso("Krogg", "mercenaire", 0.4f, 0.9f, "taverne"),
+            Perso("Aldemar", "noble", 0.7f, 0.5f, "taverne"),
+            Perso("Lyria", "barde", 1.0f, 0.1f, "taverne"),
             // Les 2 MARCHANDS AMBULANTS (indices 36, 37)
-            Perso("Zayn", "marchand", 1.0f, 0.4f),
-            Perso("Esmee", "marchande", 1.0f, 0.2f)
+            Perso("Zayn", "marchand", 1.0f, 0.4f, "marchands"),
+            Perso("Esmee", "marchande", 1.0f, 0.2f, "marchands")
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.
@@ -240,6 +241,18 @@ object VillagerAI {
         ),
         "moi_meme" to listOf("moi", "quelqu'un de mon age", "un honnete artisan", "les gens d'ici"),
         "boude" to listOf("Je boude.", "Na.", "Je ne dis plus rien.", "Tu me vexes, la."),
+        "parle_ami" to listOf(
+            "Mon ami {qui} te dira la meme chose, tiens.",
+            "Tu connais {qui} ? Un vrai coeur, celui-la.",
+            "{qui} et moi, on se connait depuis toujours.",
+            "Si tu vois {qui}, passe-lui le bonjour de ma part !"
+        ),
+        "parle_rival" to listOf(
+            "Ne me parle pas de {qui}. Ca me herisse le poil.",
+            "{qui} ? Pff. On n'est pas... du meme monde, disons.",
+            "Fais attention a {qui}, entre nous. Je dis ca, je dis rien.",
+            "Tant que tu ne deviens pas ami avec {qui}, on s'entendra bien."
+        ),
         "humeur_bonne" to listOf(
             "Ahh, quelle belle journee ! Tout va bien pour moi.",
             "Je suis d'excellente humeur, tiens ! Ca se voit, non ?",
@@ -985,6 +998,23 @@ object VillagerAI {
             return Replique("$rappel ${suite.texte}", suite.reponses)
         }
 
+        // Il parle parfois de ses AMIS ou de ses RIVAUX (vie sociale du village)
+        if (situation == "habitue" && r.nextFloat() < 0.28f) {
+            val ami = amiDe(p.nom)
+            val rival = rivalDe(p.nom)
+            val ligne = when {
+                rival != null && r.nextFloat() < 0.5f ->
+                    G["parle_rival"]!![r.nextInt(G["parle_rival"]!!.size)].replace("{qui}", rival)
+                ami != null ->
+                    G["parle_ami"]!![r.nextInt(G["parle_ami"]!!.size)].replace("{qui}", ami)
+                else -> null
+            }
+            if (ligne != null) {
+                p.memoire.dernierSujet = "les gens d'ici"
+                return fab(p, expanser(ligne, r), "libre", r)
+            }
+        }
+
         // Un bavard glisse son metier
         if (situation == "habitue" && r.nextFloat() < 0.35f + p.bavard * 0.3f) {
             return ligneMetier(p, r)
@@ -1059,6 +1089,99 @@ object VillagerAI {
 
     /** Les choix generiques quand le jeu a lui-meme redige la replique. */
     fun choixLibres(p: Perso, r: Random): List<Reponse> = reponsesPour("libre", p, r)
+
+    // ============================================================ LE RESEAU SOCIAL
+
+    /** Amities declarees (dans les deux sens) : agir sur l'un touche l'autre. */
+    private val AMIS: Map<String, List<String>> by lazy { mapOf(
+        "Kaos" to listOf("Pip", "Lyria", "Riff"),
+        "Pip" to listOf("Kaos", "Lila"),
+        "Lila" to listOf("Pip", "Agathe"),
+        "Marthe" to listOf("Agathe", "Rosa", "Grimbeard"),
+        "Agathe" to listOf("Marthe", "Lila", "Ulric"),
+        "Rosa" to listOf("Marthe", "Milo"),
+        "Milo" to listOf("Rosa", "Pip"),
+        "Ulric" to listOf("Agathe", "Sire Aldric"),
+        "Bran" to listOf("Ferra"),
+        "Ferra" to listOf("Bran", "Grimbeard"),
+        "Tomas" to listOf("Nina"),
+        "Nina" to listOf("Tomas", "Lyria"),
+        "Grimbeard" to listOf("Marthe", "Ferra", "Vieux Rowhere"),
+        "Vieux Rowhere" to listOf("Grimbeard", "Krogg"),
+        "Lyria" to listOf("Kaos", "Nina", "Barnabe"),
+        "Barnabe" to listOf("Lyria"),
+        "Sire Aldric" to listOf("Ulric", "Ysolde"),
+        "Ysolde" to listOf("Sire Aldric", "Cedric"),
+        "Maitre Zephyrin" to listOf("Morgane"),
+        "Morgane" to listOf("Maitre Zephyrin"),
+        "Zayn" to listOf("Esmee"),
+        "Esmee" to listOf("Zayn")
+    ) }
+
+    /** Rivalites : agir en bien sur l'un froisse l'autre (et inversement). */
+    private val RIVAUX: Map<String, List<String>> by lazy { mapOf(
+        "Bran" to listOf("Ferra"),          // les deux forgerons se jalousent
+        "Ferra" to listOf("Bran", "Krogg"),
+        "Krogg" to listOf("Ferra", "Sire Aldric"),   // le merco raille la guilde
+        "Sire Aldric" to listOf("Krogg"),
+        "Sombre" to listOf("Ulric", "Aldemar"),      // la voleuse vs le garde & le noble
+        "Ulric" to listOf("Sombre", "Kaos"),         // le garde vs punks et voleuse
+        "Kaos" to listOf("Ulric"),                   // le punk vs l'autorite
+        "Aldemar" to listOf("Sombre"),
+        "Zayn" to listOf("Esmee"),                   // rivalite commerciale... amicale
+        "Esmee" to listOf("Zayn")
+    ) }
+
+    private fun indexParNom(persos: List<Perso>): Map<String, Perso> =
+        persos.associateBy { it.nom }
+
+    /**
+     * CONTAGION SOCIALE : une action (delta) envers 'cible' rejaillit sur son
+     * cercle. Amis : meme sens (attenue). Rivaux : sens INVERSE. Faction : tres
+     * attenue. Cree aussi une legere teinte d'humeur chez les proches.
+     */
+    /** Arrondi qui garde au moins 1 d'intensite (jamais 0 quand delta != 0). */
+    private fun demi(delta: Int): Int {
+        if (delta == 0) return 0
+        val v = Math.round(delta * 0.5f)
+        return if (v == 0) (if (delta > 0) 1 else -1) else v
+    }
+
+    fun propagerAction(persos: List<Perso>, cibleNom: String, delta: Int, gameTime: Float) {
+        val idx = indexParNom(persos)
+        val cible = idx[cibleNom] ?: return
+        // Amis : meme sens (au moins 1)
+        AMIS[cibleNom]?.forEach { amiNom ->
+            idx[amiNom]?.let { ami ->
+                appliquer(ami, demi(delta))
+                ami.memoire.pousserHumeur(delta * 0.12f, "on a touche un ami a moi", gameTime)
+            }
+        }
+        // Rivaux : sens INVERSE
+        RIVAUX[cibleNom]?.forEach { rivalNom ->
+            idx[rivalNom]?.let { rival ->
+                appliquer(rival, demi(-delta))
+                rival.memoire.pousserHumeur(-delta * 0.1f, "mon rival a eu ton attention", gameTime)
+            }
+        }
+        // Faction entiere : 1 point dans le sens de l'action (effet doux mais reel)
+        val fac = cible.faction
+        if (fac != "solo" && fac != "village") {
+            persos.filter { it.faction == fac && it.nom != cibleNom }.forEach {
+                appliquer(it, if (delta > 0) 1 else -1)
+            }
+        }
+    }
+
+    private fun appliquer(p: Perso, delta: Int) {
+        val m = p.memoire
+        if (delta > 0) m.confidences = (m.confidences + delta).coerceAtMost(30)
+        else if (delta < 0) m.moqueries = (m.moqueries - delta).coerceAtMost(9)
+    }
+
+    /** Le reseau, pour que le PNJ puisse EVOQUER ses amis/rivaux en parlant. */
+    fun amiDe(nom: String): String? = AMIS[nom]?.firstOrNull()
+    fun rivalDe(nom: String): String? = RIVAUX[nom]?.firstOrNull()
 
     // ============================================================ LES RUMEURS
 

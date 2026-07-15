@@ -274,6 +274,12 @@ class GameView(context: Context) : View(context) {
     private val sSand: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_sand)
     private val sWater: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.i_water)
     private val sFloorWoodHouse: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.floor_wood)
+    private val sGld: Array<Array<Bitmap>> = Array(10) { i ->
+        val id = i + 1
+        arrayOf(
+            bmp("gld${id}d"), bmp("gld${id}u"), bmp("gld${id}l"), bmp("gld${id}r")
+        )
+    }
     private val sPunk: Array<Array<Bitmap>> = Array(7) { i ->
         val id = i + 1
         arrayOf(bmp("punk${id}d"), bmp("punk${id}u"), bmp("punk${id}l"), bmp("punk${id}r"))
@@ -318,7 +324,7 @@ class GameView(context: Context) : View(context) {
     private val sPlants: Array<Bitmap?> = arrayOfNulls(12)
     private val sRocks: Array<Bitmap?> = arrayOfNulls(10)
     private val sBoats: Array<Bitmap?> = arrayOfNulls(6)
-    private val sHFloors: Array<Bitmap?> = arrayOfNulls(13)
+    private val sHFloors: Array<Bitmap?> = arrayOfNulls(33)
     private val sTags: Array<Bitmap?> = arrayOfNulls(16)
 
     private fun tagBmp(n: Int): Bitmap {
@@ -358,7 +364,8 @@ class GameView(context: Context) : View(context) {
         BitmapFactory.decodeResource(resources, R.drawable.house_forge),
         BitmapFactory.decodeResource(resources, R.drawable.house_anarchist),
         BitmapFactory.decodeResource(resources, R.drawable.house_alchemist),
-        BitmapFactory.decodeResource(resources, R.drawable.house_club)
+        BitmapFactory.decodeResource(resources, R.drawable.house_club),
+        BitmapFactory.decodeResource(resources, R.drawable.house_guild)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -1412,6 +1419,9 @@ class GameView(context: Context) : View(context) {
         for ((cell, id) in world.punkSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 2, id))
         }
+        for ((cell, id) in world.guildSpawns) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 4, id))
+        }
         if (world.pierreCell >= 0) {
             walkers.add(Walker(world.cx(world.pierreCell) + 0.5f, world.cy(world.pierreCell) + 0.5f, 3, 1))
         }
@@ -1582,6 +1592,19 @@ class GameView(context: Context) : View(context) {
                 dialogue = "Oi !"
                 dialogueName = ""
             }
+        } else if (w.kind == 4) {
+            // Les heros de la guilde
+            val idx3 = 17 + w.id
+            if (idx3 < villagers.size) {
+                val p3 = villagers[idx3]
+                dialogue = try {
+                    VillagerAI.parler(p3, time, world.bossDefeated, npcRnd)
+                } catch (t: Throwable) { "Pour la guilde !" }
+                dialogueName = p3.nom
+            } else {
+                dialogue = "Pour la guilde !"
+                dialogueName = ""
+            }
         } else if (w.kind == 3) {
             // Pierre et Franki : LA QUETE DU SLIP
             if (w.id == 1) {
@@ -1702,6 +1725,7 @@ class GameView(context: Context) : View(context) {
             actLabel = when (wk.kind) {
                 0 -> "PARLER"
                 2 -> "PARLER"
+                4 -> "PARLER"
                 3 -> if (wk.id == 1) "PARLER A PIERRE" else "PARLER A FRANKI"
                 else -> "CARESSER"
             }
@@ -1755,6 +1779,7 @@ class GameView(context: Context) : View(context) {
             showMsg("LE PUNK CLUB ! Le son est ENORME !")
             if (!clubVisited) { clubVisited = true; saveGame() }
         }
+        if (n == 6) showMsg("LA GUILDE ! \"La force du groupe, la gloire a tous !\"")
         enterHouse(n)
     }
 
@@ -3212,6 +3237,7 @@ class GameView(context: Context) : View(context) {
                 0 -> sNpc[(wk.id - 1) % 10]
                 2 -> sPunk[(wk.id - 1) % 7]
                 3 -> sFisher[(wk.id - 1) % 2]
+                4 -> sGld[(wk.id - 1) % 10]
                 else -> sPet[(wk.id - 1) % 10]
             }
             val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f

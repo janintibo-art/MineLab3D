@@ -59,7 +59,18 @@ object VillagerAI {
             Perso("Brik", "punk", 0.4f, 0.8f),
             Perso("Nox", "punk", 0.3f, 0.7f),
             Perso("Patch", "punk", 1.0f, 0.1f),
-            Perso("Krust", "punk", 0.3f, 0.9f)
+            Perso("Krust", "punk", 0.3f, 0.9f),
+            // Les 10 heros de la GUILDE (indices 18 a 27)
+            Perso("Sire Aldric", "chevalier", 0.6f, 0.3f),
+            Perso("Morgane", "magicienne", 0.5f, 0.4f),
+            Perso("Thorin", "guerrier", 0.4f, 0.7f),
+            Perso("Elara", "archere", 0.7f, 0.2f),
+            Perso("Barnabe", "barde", 1.0f, 0.0f),
+            Perso("Ysolde", "paladine", 0.6f, 0.3f),
+            Perso("Gareth", "rodeur", 0.3f, 0.5f),
+            Perso("Luna", "aventuriere", 0.8f, 0.2f),
+            Perso("Cedric", "moine", 0.7f, 0.1f),
+            Perso("Freya", "valkyrie", 0.5f, 0.6f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.

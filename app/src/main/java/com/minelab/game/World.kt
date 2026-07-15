@@ -90,6 +90,8 @@ class World(
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val punkSpawns = ArrayList<Pair<Int, Int>>()
+    /** Les 10 heros de la GUILDE, dans le grand hall. */
+    val guildSpawns = ArrayList<Pair<Int, Int>>()
     var pierreCell = -1
     var frankiCell = -1
     /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
@@ -492,6 +494,23 @@ class World(
         buildHouse(3, px + 7, vy + 5)        // la maison anarchiste, a l'ecart
         buildHouse(4, px - 7, vy + 5)        // la cabane d'alchimiste, de l'autre cote
         buildHouse(5, px + 9, vy)            // le PUNK CLUB, en bordure nord-est
+        buildHouse(6, px - 9, vy)            // LA GUILDE, en bordure nord-ouest
+
+        // Les 10 heros de la guilde, repartis dans le grand hall
+        run {
+            val rx0 = 1 + ((6 - 1) % 3) * 13
+            val ry0 = hy0 + 1 + ((6 - 1) / 3) * 9
+            val spots = listOf(
+                Pair(1, 2), Pair(3, 2), Pair(5, 2), Pair(7, 2), Pair(9, 2),
+                Pair(2, 4), Pair(4, 4), Pair(6, 4), Pair(8, 4), Pair(10, 4)
+            )
+            for ((k, sp) in spots.withIndex()) {
+                val c = idx(rx0 + sp.first, ry0 + sp.second)
+                if (inside(rx0 + sp.first, ry0 + sp.second) && grid[c] == FLOOR) {
+                    guildSpawns.add(Pair(c, k + 1))
+                }
+            }
+        }
 
         // Les punks trainent devant le club... et dedans
         for ((k, sp) in listOf(
@@ -582,6 +601,7 @@ class World(
             3 -> 23       // squat anarchiste : beton clair tache, crade mais lumineux (SOL_CLAIR_11)
             4 -> 32       // cabane d'alchimiste : carreaux hexagonaux, tres alchimique (SOL_CLAIR_20)
             5 -> 31       // le punk club : plancher clair (contraste avec les punks !)
+            6 -> 27       // LA GUILDE : carrelage clair en diagonale, noble (SOL_CLAIR_15)
                           // (hfloor6 etait une texture de MUR a colombages - bug corrige)
             else -> 22    // chaumiere : planches de bois blond (SOL_CLAIR_10)
         }
@@ -611,6 +631,12 @@ class World(
             4 -> {                                  // alchimiste : fenetre + tapis
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 + 4)] = 5
+            }
+            6 -> {                                  // guilde : cheminee, fenetres, grand tapis
+                fixtures[idx(rx0 + 2, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 6, ry0 - 1)] = 2
+                fixtures[idx(rx0 + 10, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 6, ry0 + 3)] = 4
             }
             5 -> {                                  // club : la scene et le matos
                 fixtures[idx(rx0 + 6, ry0)] = 3
@@ -745,6 +771,12 @@ class World(
                 Triple(11, 2, 61), Triple(10, 3, 2),
                 Triple(0, 5, 5), Triple(1, 5, 5), Triple(2, 5, 2),
                 Triple(9, 5, 5), Triple(10, 5, 2)
+            )
+            // GUILDE : rateliers, coffres et tables le long des murs, hall ouvert
+            6 -> listOf(
+                Triple(0, 0, 37), Triple(1, 0, 39), Triple(3, 0, 20), Triple(4, 0, 21),
+                Triple(8, 0, 10), Triple(9, 0, 38), Triple(11, 0, 45),
+                Triple(0, 5, 16), Triple(11, 5, 72)
             )
             else -> emptyList()
         }

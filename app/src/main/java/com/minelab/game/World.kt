@@ -50,7 +50,7 @@ class World(
     val wid = maxOf(hallW + 24, 40)
     val uy0 = maxOf(hallH, 11) + 3
     val iy0 = uy0 + 24          // premiere ligne de l'ile
-    val hy0 = iy0 + 36          // premiere ligne des interieurs de maison
+    val hy0 = iy0 + 58          // premiere ligne des interieurs de maison (sous la mer du sud)
     val hei = hy0 + 40
 
     val grid = IntArray(wid * hei) { WALL }
@@ -96,6 +96,8 @@ class World(
     var frankiCell = -1
     /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
     var slipCell = -1
+    /** La case de mer ou la barque attend, pres de la plage sud. */
+    var boatCell = -1
     val petSpawns = ArrayList<Pair<Int, Int>>()
     var islandPortal = -1
     var islandVisited = false
@@ -384,9 +386,14 @@ class World(
         val cyI = top + h / 2f
         val rx = wid / 2f - 1.5f
         val ry = h / 2f - 1.5f
+        // L'ILE LOINTAINE, petite, au sud, accessible en barque
+        val cx2 = wid * 0.42f
+        val cy2 = top + 45f
+        val rx2 = 8.5f
+        val ry2 = 7.5f
         villageCy = (cyI + 5).toInt()
 
-        for (y in top until top + h) {
+        for (y in top until top + 56) {
             for (x in 0 until wid) {
                 if (!inside(x, y)) continue
                 val i = idx(x, y)
@@ -397,6 +404,14 @@ class World(
                 val ang = kotlin.math.atan2(dy.toDouble(), dx.toDouble()).toFloat()
                 d *= 1f + 0.10f * kotlin.math.sin(ang * 3f + seed.toFloat() % 6.28f) +
                         0.06f * kotlin.math.sin(ang * 5f + 1.3f)
+                // L'ile lointaine : on garde la cote la plus proche des deux
+                val dx2 = (x + 0.5f - cx2) / rx2
+                val dy2 = (y + 0.5f - cy2) / ry2
+                var d2 = kotlin.math.sqrt((dx2 * dx2 + dy2 * dy2).toDouble()).toFloat()
+                val ang2 = kotlin.math.atan2(dy2.toDouble(), dx2.toDouble()).toFloat()
+                d2 *= 1f + 0.12f * kotlin.math.sin(ang2 * 4f + seed.toFloat() % 6.28f) +
+                        0.05f * kotlin.math.sin(ang2 * 7f + 0.7f)
+                d = kotlin.math.min(d, d2)
                 when {
                     d < 0.62f -> { terrain[i] = TER_GRASS; grid[i] = FLOOR }
                     d < 0.76f -> { terrain[i] = TER_SAND; grid[i] = FLOOR }
@@ -425,6 +440,34 @@ class World(
         placeVillagers()
         placeSecretEntrance()
         placeDecor()
+
+        // La barque, sur un haut-fond au sud du village, contre la plage
+        outer3@ for (y in top + 24..top + 33) {
+            for (x in px - 8..px + 8) {
+                if (!inside(x, y) || !inside(x, y - 1)) continue
+                val c = idx(x, y)
+                val up = idx(x, y - 1)
+                if (c != slipCell && terrain[c] == TER_SHALLOW &&
+                    (terrain[up] == TER_SHORE || terrain[up] == TER_SAND) && grid[up] == FLOOR
+                ) {
+                    boatCell = c
+                    break@outer3
+                }
+            }
+        }
+
+        // Un DISTRIBUTEUR 8.6, seul au monde, sur l'ile lointaine
+        outer4@ for (y in top + 42..top + 50) {
+            for (x in (cx2 - 4).toInt()..(cx2 + 4).toInt()) {
+                if (!inside(x, y)) continue
+                val c = idx(x, y)
+                if (terrain[c] == TER_GRASS && grid[c] == FLOOR && !decor.containsKey(c)) {
+                    vendors[c] = 3
+                    grid[c] = WALL
+                    break@outer4
+                }
+            }
+        }
     }
 
     /** Cherche une case d'herbe au nord-ouest pour l'entree du prochain donjon. */
@@ -445,7 +488,7 @@ class World(
     private fun placeDecor() {
         plantForests()
         val top = iy0
-        for (y in top until top + 34) {
+        for (y in top until top + 56) {
             for (x in 0 until wid) {
                 if (!inside(x, y)) continue
                 val i = idx(x, y)
@@ -1122,8 +1165,16 @@ class World(
         }
     }
 
-    fun findPath(fx: Int, fy: Int, tx: Int, ty: Int): List<Pair<Int, Int>>? {
-        if (!isWalkable(tx, ty)) return null
+    /** Une case de mer praticable en barque. */
+    fun isNavigable(x: Int, y: Int): Boolean {
+        if (!inside(x, y)) return false
+        val t = terrain[idx(x, y)]
+        return t == TER_WATER || t == TER_SHALLOW
+    }
+
+    fun findPath(fx: Int, fy: Int, tx: Int, ty: Int, boat: Boolean = false): List<Pair<Int, Int>>? {
+        fun ok(x: Int, y: Int) = if (boat) isNavigable(x, y) else isWalkable(x, y)
+        if (!ok(tx, ty)) return null
         if (fx == tx && fy == ty) return emptyList()
         val prev = HashMap<Int, Int>()
         val seen = HashSet<Int>()
@@ -1146,7 +1197,7 @@ class World(
             for ((dx, dy) in d4) {
                 val nx = x + dx
                 val ny = y + dy
-                if (!isWalkable(nx, ny)) continue
+                if (!ok(nx, ny)) continue
                 val ni = idx(nx, ny)
                 if (ni in seen) continue
                 seen.add(ni)

@@ -157,6 +157,9 @@ class GameView(context: Context) : View(context) {
     private var fishHx = 0               // position du heros au lancer (bouger = remonter la ligne)
     private var fishHy = 0
     private var fishCount = 0            // poissons frais dans la besace
+    // --- la barque ---
+    private var onBoat = false           // le heros est en mer, a la rame
+    private var boatCell = -1            // ou la barque attend (case de mer)
     // --- quetes farfelues des villageois : 0 pas proposee, 1 en cours, 2 accomplie ---
     private val vQuest = IntArray(11)    // indexe par l'id du villageois (1..10)
     private var fishTotal = 0            // poissons peches en tout (stat)
@@ -307,6 +310,7 @@ class GameView(context: Context) : View(context) {
     private val sMic: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_mic)
     private val sSlip: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.slip)
     private val sRod: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.rod)
+    private val sBoat: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.boat1)
     private val sNpc: Array<Array<Bitmap>> = Array(10) { i ->
         val id = i + 1
         arrayOf(
@@ -583,6 +587,7 @@ class GameView(context: Context) : View(context) {
         shroomCount = 0; spraysDone = 0; tripT = 0f
         metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
         fishing = false; fishBiteT = 0f; fishCount = 0
+        onBoat = false; boatCell = -1
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
         petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
         mobs.clear()
@@ -687,6 +692,8 @@ class GameView(context: Context) : View(context) {
         e.putInt("pets", petCount)
         e.putInt("drinks", drinksDone)
         e.putBoolean("club", clubVisited)
+        e.putBoolean("boat", onBoat)
+        e.putInt("boatC", boatCell)
         e.putBoolean("sharp", swordSharp)
         e.putBoolean("slip", slipOwned)
         e.putBoolean("ticket", ticketOwned)
@@ -784,6 +791,8 @@ class GameView(context: Context) : View(context) {
         petCount = prefs.getInt("pets", 0)
         drinksDone = prefs.getInt("drinks", 0)
         clubVisited = prefs.getBoolean("club", false)
+        onBoat = prefs.getBoolean("boat", false)
+        boatCell = prefs.getInt("boatC", -1)
         swordSharp = prefs.getBoolean("sharp", false)
         slipOwned = prefs.getBoolean("slip", false)
         ticketOwned = prefs.getBoolean("ticket", false)
@@ -1095,7 +1104,7 @@ class GameView(context: Context) : View(context) {
                 val ni = world.idx(nx, ny)
                 if (ni in world.blocks) {
                     tryPush(nx, ny)
-                } else if (world.isWalkable(nx, ny)) {
+                } else if (if (onBoat) world.isNavigable(nx, ny) else world.isWalkable(nx, ny)) {
                     clearPendings()
                     path = listOf(Pair(nx, ny))
                     pathStep = 0
@@ -1404,6 +1413,7 @@ class GameView(context: Context) : View(context) {
     private var teleCd = 0f
 
     private fun initWalkers() {
+        if (boatCell < 0) boatCell = world.boatCell
         walkers.clear()
         villagers = try {
             VillagerAI.creerVillageois(world.seed)
@@ -1702,6 +1712,24 @@ class GameView(context: Context) : View(context) {
             actLabel = if (n == 5) "ENTRER AU CLUB" else "ENTRER"
             return
         }
+        // 2b. La barque : embarquer quand on est au bord, accoster quand on est en mer
+        if (!onBoat && boatCell >= 0 &&
+            abs(world.cx(boatCell) - hx) <= 1 && abs(world.cy(boatCell) - hy) <= 1
+        ) {
+            actKind = 5; actData = boatCell
+            actLabel = "EMBARQUER"
+            return
+        }
+        if (onBoat) {
+            for ((dx, dy) in listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))) {
+                if (world.isWalkable(hx + dx, hy + dy)) {
+                    actKind = 6; actData = world.idx(hx + dx, hy + dy)
+                    actLabel = "ACCOSTER"
+                    return
+                }
+            }
+            return
+        }
         // 3. Le distributeur
         for (dy in -1..1) for (dx in -1..1) {
             if (!world.inside(hx + dx, hy + dy)) continue
@@ -1764,7 +1792,35 @@ class GameView(context: Context) : View(context) {
             2 -> leaveHouse(actData)
             3 -> walkers.getOrNull(actData)?.let { if (hypot(it.x - fx, it.y - fy) <= 2.3f) talkTo(it) }
             4 -> useVendor(actData)
+            5 -> boardBoat(actData)
+            6 -> disembark(actData)
         }
+    }
+
+    /** Sauter dans la barque : on peut alors ramer sur toute la mer. */
+    private fun boardBoat(cell: Int) {
+        hx = world.cx(cell); hy = world.cy(cell)
+        fx = hx + 0.5f; fy = hy + 0.5f
+        onBoat = true
+        stopFishing(null)
+        path = emptyList(); pathStep = 0
+        following = true
+        audio.play("splash")
+        showMsg("En mer ! Touchez l'eau pour ramer. ACCOSTER pres d'un rivage.")
+        saveGame()
+    }
+
+    /** Poser pied a terre : la barque reste mouillee ici. */
+    private fun disembark(cell: Int) {
+        boatCell = world.idx(hx, hy)
+        hx = world.cx(cell); hy = world.cy(cell)
+        fx = hx + 0.5f; fy = hy + 0.5f
+        onBoat = false
+        path = emptyList(); pathStep = 0
+        following = true
+        audio.play("splash")
+        showMsg("Vous accostez. La barque vous attend ici.")
+        saveGame()
     }
 
     /** Entrer dans une maison (le videur du club controle les places). */
@@ -2157,6 +2213,18 @@ class GameView(context: Context) : View(context) {
         if (world.isTorch(i)) {
             if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la torche."); return }
             clearPendings(); pendingTorch = i
+            return
+        }
+        // En barque : toucher l'eau = ramer jusque-la
+        if (onBoat) {
+            if (world.isNavigable(gx, gy)) {
+                val p = world.findPath(hx, hy, gx, gy, boat = true)
+                if (p == null) { showMsg("Impossible de ramer jusque-la."); return }
+                clearPendings()
+                path = p; pathStep = 0
+            } else {
+                showMsg("Approchez du rivage et touchez ACCOSTER pour debarquer.")
+            }
             return
         }
         // Pecher avec la canne de Franki (vrai mode peche, garde pour toujours)
@@ -2612,6 +2680,29 @@ class GameView(context: Context) : View(context) {
     }
 
 
+    /** La barque au mouillage, qui tangue en attendant le heros. */
+    private fun drawMooredBoat(canvas: Canvas, w: Float) {
+        if (onBoat || boatCell < 0) return
+        val bx = world.cx(boatCell) + 0.5f
+        val by = world.cy(boatCell) + 0.5f + sin(time * 1.4f) * 0.05f
+        val sxp = sx(bx, w)
+        val syp = sy(by)
+        if (syp < boardTop - tile || syp > boardBottom + tile) return
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.03f
+        val ph = (time * 0.5f) % 1f
+        paint.color = Color.argb(((1f - ph) * 80).toInt(), 235, 248, 255)
+        canvas.drawOval(
+            sxp - tile * (0.5f + ph * 0.4f), syp + tile * 0.2f - tile * (0.15f + ph * 0.13f),
+            sxp + tile * (0.5f + ph * 0.4f), syp + tile * 0.2f + tile * (0.15f + ph * 0.13f), paint
+        )
+        paint.style = Paint.Style.FILL
+        canvas.save()
+        canvas.rotate(sin(time * 0.8f) * 4f, sxp, syp)
+        drawSprite(canvas, sBoat, sxp, syp, tile * 1.55f)
+        canvas.restore()
+    }
+
     /** Le slip porte-bonheur de Pierre flotte sur la houle, au large de la plage. */
     private fun drawFloatingSlip(canvas: Canvas, w: Float) {
         val sc = world.slipCell
@@ -2714,6 +2805,7 @@ class GameView(context: Context) : View(context) {
     /** Mouettes qui planent au-dessus de la mer, papillons sur la place. */
     private fun drawIslandLife(canvas: Canvas, w: Float) {
         if (camY < world.iy0 - 6) return
+        drawMooredBoat(canvas, w)
         drawFloatingSlip(canvas, w)
         drawFishing(canvas, w)
         // Les mouettes
@@ -3666,13 +3758,33 @@ class GameView(context: Context) : View(context) {
     private fun drawHero(canvas: Canvas, w: Float) {
         val cxx = sx(fx, w)
         val walking = pathStep < path.size
-        val bob = if (walking) abs(sin(walkPhase * 0.5f)) * tile * 0.06f else 0f
+        val bob = if (onBoat) sin(time * 1.6f) * tile * 0.03f
+                  else if (walking) abs(sin(walkPhase * 0.5f)) * tile * 0.06f else 0f
         val cyy = sy(fy) - tile * 0.12f - bob
-        paint.color = Color.argb(95, 0, 0, 0)
-        canvas.drawOval(
-            cxx - tile * 0.26f, sy(fy) + tile * 0.22f,
-            cxx + tile * 0.26f, sy(fy) + tile * 0.36f, paint
-        )
+        if (onBoat) {
+            // Sillage derriere la barque quand on rame
+            if (walking) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = tile * 0.035f
+                for (k in 0..1) {
+                    val ph = (time * 1.1f + k * 0.5f) % 1f
+                    paint.color = Color.argb(((1f - ph) * 120).toInt(), 235, 248, 255)
+                    canvas.drawOval(
+                        cxx - tile * (0.3f + ph * 0.55f), sy(fy) + tile * 0.1f - tile * (0.1f + ph * 0.16f),
+                        cxx + tile * (0.3f + ph * 0.55f), sy(fy) + tile * 0.1f + tile * (0.1f + ph * 0.16f), paint
+                    )
+                }
+                paint.style = Paint.Style.FILL
+            }
+            // La barque, sous le heros
+            drawSprite(canvas, sBoat, cxx, sy(fy) + tile * 0.05f - bob, tile * 1.6f)
+        } else {
+            paint.color = Color.argb(95, 0, 0, 0)
+            canvas.drawOval(
+                cxx - tile * 0.26f, sy(fy) + tile * 0.22f,
+                cxx + tile * 0.26f, sy(fy) + tile * 0.36f, paint
+            )
+        }
         val bmp = when (heroDir) {
             1 -> sHeroUp
             2 -> sHeroLeft
@@ -3817,6 +3929,7 @@ class GameView(context: Context) : View(context) {
         val underground = hy >= world.uy0
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
+            onBoat -> "En mer ! Touchez l'eau pour ramer. L'ile lointaine est au sud..."
             world.isInterior(hx, hy) && world.interiorOf(hx, hy) == 5 -> "LE CONCERT ! Le slip a Pierre resonne !"
             world.isInterior(hx, hy) -> "Vous etes a l'interieur. La porte du bas pour sortir."
             metPierre && !rodOwned -> "Quete : demander la canne a Franki (plage sud-ouest)."

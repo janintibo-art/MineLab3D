@@ -23,6 +23,7 @@ object VillagerAI {
         var rencontres = 0            // combien de fois on lui a parle
         var derniereRencontre = 0f    // horloge de jeu de la derniere discussion
         var bouscule = 0              // le heros lui a fonce dedans (rancune legere)
+        var vexe = 0                  // moqueries recentes : trop, et c'est la COLERE
         var connaitExploits = false   // a entendu parler du boss vaincu
     }
 
@@ -70,7 +71,9 @@ object VillagerAI {
             Perso("Gareth", "rodeur", 0.3f, 0.5f),
             Perso("Luna", "aventuriere", 0.8f, 0.2f),
             Perso("Cedric", "moine", 0.7f, 0.1f),
-            Perso("Freya", "valkyrie", 0.5f, 0.6f)
+            Perso("Freya", "valkyrie", 0.5f, 0.6f),
+            // Le professeur de magie du Grand Arbre (indice 28)
+            Perso("Maitre Zephyrin", "magicien", 1.0f, 0.6f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.
@@ -165,7 +168,37 @@ object VillagerAI {
             "cache un tresor sous son plancher", "ne dort plus depuis la pleine lune",
             "parle tout seul aux mouettes", "a peur du noir"
         ),
-        "tresor" to listOf("une salle secrete", "un tresor englouti", "une porte scellee", "de l'or")
+        "tresor" to listOf("une salle secrete", "un tresor englouti", "une porte scellee", "de l'or"),
+        // --- la CONVERSATION : reactions aux reponses du heros
+        "relance" to listOf(
+            "Puisque ca t'interesse... {potin}",
+            "Ah, enfin quelqu'un qui ecoute ! {potin}",
+            "Alors ouvre grand tes oreilles : {potin}",
+            "{grognement}, un public ! Bon... {potin}",
+            "Tu veux TOUT savoir, hein ? {potin}"
+        ),
+        "vexe" to listOf(
+            "{grognement} ! On ne se moque pas de {moi_meme} !",
+            "Tres drole. Vraiment. {boude}",
+            "Repete un peu, pour voir ?!",
+            "{grognement} ! Et c'est TOI qui dis ca ?!",
+            "Pff. {boude}"
+        ),
+        "furieux" to listOf(
+            "CA SUFFIT ! {grognement} de {grognement} !!",
+            "DEHORS ! ... Enfin non, reste. MAIS QUAND MEME !",
+            "{grognement} !!! Je compte jusqu'a dix. UN. DEUX. TROIS...",
+            "AAARGH ! Tu me fais sortir de mes gonds, la !!"
+        ),
+        "moi_meme" to listOf("moi", "quelqu'un de mon age", "un honnete artisan", "les gens d'ici"),
+        "boude" to listOf("Je boude.", "Na.", "Je ne dis plus rien.", "Tu me vexes, la."),
+        "aurevoir" to listOf(
+            "A la prochaine, {surnom} !",
+            "Bonne route, {surnom} !",
+            "File, et reviens vite !",
+            "{salut} bien, et gare aux mines !",
+            "Tu sais ou me trouver, {surnom}."
+        )
     ) }
 
     /** Les grammaires de metier : chaque villageois a SES sujets a lui. */
@@ -219,6 +252,15 @@ object VillagerAI {
             "J'ai encore reve de la mer qui parle...",
             "Les nuages dessinent des dragons, regarde.",
             "Et si le portail menait aux etoiles ?"
+        ),
+        "magicien" to listOf(
+            "Les runes me chatouillent. Bon signe. Ou une allergie.",
+            "J'ai transforme une mouette en theiere. Elle vole ENCORE.",
+            "CHUT !! ... Pardon, je parlais a l'arbre. Il raconte sa vie.",
+            "L'important en magie, c'est le CHAPEAU. J'ai perdu le mien en 1372.",
+            "Ne touche pas aux fioles. Surtout la verte. SURTOUT la verte.",
+            "Mon maitre disait : un sort rate est une lecon. J'ai BEAUCOUP appris.",
+            "Cet arbre a 3000 ans et il fait encore des feuilles. MOTIVANT, non ?"
         ),
         "punk" to listOf(
             "Je boycotte ce dialogue. ... Bon, ok, salut.",
@@ -348,6 +390,27 @@ object VillagerAI {
             expanser(pool[r.nextInt(pool.size)], r)
         }
         return ligne
+    }
+
+    /**
+     * Le heros REPOND (choix multiple) : 0 = relancer, 1 = se moquer,
+     * 2 = prendre conge. La moquerie s'accumule dans la memoire (vexe) et,
+     * selon le caractere, finit en vraie COLERE.
+     */
+    fun repondre(p: Perso, choix: Int, r: Random): String {
+        val m = p.memoire
+        return when (choix) {
+            0 -> {
+                m.vexe = (m.vexe - 1).coerceAtLeast(0)
+                expanser(G["relance"]!!.let { it[r.nextInt(it.size)] }, r)
+            }
+            1 -> {
+                m.vexe = (m.vexe + 1).coerceAtMost(4)
+                val pool = if (m.vexe >= 2 || p.grognon > 0.7f) G["furieux"]!! else G["vexe"]!!
+                expanser(pool[r.nextInt(pool.size)], r)
+            }
+            else -> expanser(G["aurevoir"]!!.let { it[r.nextInt(it.size)] }, r)
+        }
     }
 
     /** Petit mot lance sans qu'on lui parle (les bavards seulement). */

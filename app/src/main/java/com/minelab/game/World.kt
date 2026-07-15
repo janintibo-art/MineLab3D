@@ -92,6 +92,8 @@ class World(
     val punkSpawns = ArrayList<Pair<Int, Int>>()
     /** Les 10 heros de la GUILDE, dans le grand hall. */
     val guildSpawns = ArrayList<Pair<Int, Int>>()
+    /** Maitre Zephyrin, le magicien du Grand Arbre. */
+    var mageCell = -1
     var pierreCell = -1
     var frankiCell = -1
     /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
@@ -631,6 +633,7 @@ class World(
                 if (grid[mat] != FLOOR || terrain[mat] == TER_SHALLOW || terrain[mat] == TER_WATER) ok = false
                 if (!ok) continue
                 buildHouse(7, x, y)
+                mageCell = interiorSpot(7, 1)
                 return
             }
         }

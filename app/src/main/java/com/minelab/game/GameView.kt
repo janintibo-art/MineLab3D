@@ -157,6 +157,25 @@ class GameView(context: Context) : View(context) {
     private var fishHx = 0               // position du heros au lancer (bouger = remonter la ligne)
     private var fishHy = 0
     private var fishCount = 0            // poissons frais dans la besace
+    // --- la vraie discussion : reponses a choix multiples ---
+    private var dlgChoices: List<String> = emptyList()
+    private val dlgChoiceRects = ArrayList<RectF>()
+    private var dlgWalkerIdx = -1        // a qui repond-on ?
+    private var dlgKind = 0              // 0 papotage ; 1 menu du mage ; 2 question de cours
+    private var dlgElems: List<Int> = emptyList()   // elements proposes au menu du mage
+    private var dlgElem = -1             // element du cours en attente de reponse
+    private var dlgCorrect = -1          // index de la bonne reponse
+    // --- les magies elementaires ---
+    private val spellKnown = BooleanArray(4)         // air, eau, terre, feu
+    private var spellDemo = -1
+    private var spellDemoT = 0f
+    private val sSpell = Array(4) { Array(4) { arrayOfNulls<Bitmap>(5) } }
+    private val sMage: Array<Bitmap> = arrayOf(
+        BitmapFactory.decodeResource(resources, R.drawable.maged),
+        BitmapFactory.decodeResource(resources, R.drawable.mageu),
+        BitmapFactory.decodeResource(resources, R.drawable.magel),
+        BitmapFactory.decodeResource(resources, R.drawable.mager)
+    )
     // --- la barque ---
     private var onBoat = false           // le heros est en mer, a la rame
     private var boatCell = -1            // ou la barque attend (case de mer)
@@ -340,6 +359,15 @@ class GameView(context: Context) : View(context) {
     private fun bmp(name: String): Bitmap {
         val id = resources.getIdentifier(name, "drawable", context.packageName)
         return BitmapFactory.decodeResource(resources, id)
+    }
+
+    private fun spellBmp(e: Int, d: Int, f: Int): Bitmap {
+        if (sSpell[e][d][f] == null) {
+            val en = arrayOf("a", "e", "t", "f")[e]
+            val dn = arrayOf("d", "u", "l", "r")[d]
+            sSpell[e][d][f] = bmp("sp$en$dn${f + 1}")
+        }
+        return sSpell[e][d][f]!!
     }
 
     private fun prop(n: Int): Bitmap {
@@ -589,6 +617,8 @@ class GameView(context: Context) : View(context) {
         metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
         fishing = false; fishBiteT = 0f; fishCount = 0
         onBoat = false; boatCell = -1
+        spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
+        dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
         petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
         mobs.clear()
@@ -695,6 +725,7 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("club", clubVisited)
         e.putBoolean("boat", onBoat)
         e.putInt("boatC", boatCell)
+        e.putString("spells", spellKnown.joinToString("") { if (it) "1" else "0" })
         e.putBoolean("sharp", swordSharp)
         e.putBoolean("slip", slipOwned)
         e.putBoolean("ticket", ticketOwned)
@@ -794,6 +825,8 @@ class GameView(context: Context) : View(context) {
         clubVisited = prefs.getBoolean("club", false)
         onBoat = prefs.getBoolean("boat", false)
         boatCell = prefs.getInt("boatC", -1)
+        val sp = prefs.getString("spells", "") ?: ""
+        for (k in spellKnown.indices) spellKnown[k] = k < sp.length && sp[k] == '1'
         swordSharp = prefs.getBoolean("sharp", false)
         slipOwned = prefs.getBoolean("slip", false)
         ticketOwned = prefs.getBoolean("ticket", false)
@@ -990,7 +1023,8 @@ class GameView(context: Context) : View(context) {
         boomFlash = (boomFlash - dt * 1.6f).coerceAtLeast(0f)
         damageT = (damageT - dt).coerceAtLeast(0f)
         keyAnim = (keyAnim - dt).coerceAtLeast(0f)
-        dialogueT = (dialogueT - dt).coerceAtLeast(0f)
+        if (dlgChoices.isEmpty()) dialogueT = (dialogueT - dt).coerceAtLeast(0f)
+        else dialogueT = dialogueT.coerceAtLeast(0.5f)
         simonFlashT = (simonFlashT - dt).coerceAtLeast(0f)
         attackCd = (attackCd - dt).coerceAtLeast(0f)
         teleCd = (teleCd - dt).coerceAtLeast(0f)
@@ -999,6 +1033,10 @@ class GameView(context: Context) : View(context) {
         attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
 
+        if (spellDemoT > 0f) {
+            spellDemoT -= dt
+            if (spellDemoT <= 0f) spellDemo = -1
+        }
         // La peche : attente, touche ("CA MORD"), fenetre de ferrage
         if (fishing) {
             fishSplashT = (fishSplashT - dt).coerceAtLeast(0f)
@@ -1433,6 +1471,9 @@ class GameView(context: Context) : View(context) {
         for ((cell, id) in world.guildSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 4, id))
         }
+        if (world.mageCell >= 0) {
+            walkers.add(Walker(world.cx(world.mageCell) + 0.5f, world.cy(world.mageCell) + 0.5f, 5, 1))
+        }
         if (world.pierreCell >= 0) {
             walkers.add(Walker(world.cx(world.pierreCell) + 0.5f, world.cy(world.pierreCell) + 0.5f, 3, 1))
         }
@@ -1564,7 +1605,160 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    // ------------------------------------------------ la vraie discussion
+
+    /** Le Perso (VillagerAI) derriere un walker, s'il en a un. */
+    private fun persoFor(w: Walker): VillagerAI.Perso? = when (w.kind) {
+        0 -> if (villagers.isEmpty()) null else villagers.getOrNull((w.id - 1) % villagers.size)
+        2 -> villagers.getOrNull(10 + w.id)
+        4 -> villagers.getOrNull(17 + w.id)
+        5 -> villagers.getOrNull(28)
+        else -> null
+    }
+
+    /** Pose la bulle sur ce walker (position, duree, orientation). */
+    private fun setBubbleAt(w: Walker) {
+        dialogueX = w.x
+        dialogueY = w.y
+        val dur = (2.2f + dialogue.length * 0.045f).coerceAtMost(6.5f)
+        w.talk = dur
+        dialogueT = dur
+        val ddx = fx - w.x
+        val ddy = fy - w.y
+        w.dir = if (abs(ddx) >= abs(ddy)) (if (ddx > 0) 3 else 2) else (if (ddy > 0) 0 else 1)
+    }
+
+    /** Les trois reponses toujours possibles quand on papote. */
+    private fun offerChatChoices(w: Walker) {
+        dlgWalkerIdx = walkers.indexOf(w)
+        dlgKind = 0
+        dlgChoices = listOf("Raconte !", "N'importe quoi...", "Bonne journee !")
+    }
+
+    private val LESSON_NAMES = arrayOf("L'AIR", "L'EAU", "LA TERRE", "LE FEU")
+
+    /** Les cours de Maitre Zephyrin : lecon + question + 3 reponses (bonne). */
+    private fun lessonFor(e: Int): Triple<String, List<String>, Int> = when (e) {
+        0 -> Triple(
+            "L'AIR ! Invisible, insaisissable... comme mes clefs ! Il porte les mouettes, les odeurs de soupe et mes eternuements. QUESTION : pour lever une tornade, on agite quoi ?",
+            listOf("La langue", "Les bras, comme un poulet furieux", "Un sandwich"), 1
+        )
+        1 -> Triple(
+            "L'EAU ! Elle mouille. C'est PROFOND, medite la-dessus. L'eau epouse toutes les formes, meme celle de ma theiere-mouette. QUESTION : la formule secrete de l'eau, c'est... ?",
+            listOf("Abracadabra", "H2-Slip", "GLOU-GLOU-GLOUUU"), 2
+        )
+        2 -> Triple(
+            "LA TERRE ! Solide ! Fiable ! Contrairement a mon dos. La terre porte tout : l'arbre, le village, et mes 3000 fioles. QUESTION : pour soulever un rocher par la pensee, on pense a... ?",
+            listOf("Des racines profondes", "Une omelette", "Rien : c'est le rocher qui decide"), 0
+        )
+        else -> Triple(
+            "LE FEU !! NE PAS REPETER A LA MAISON !! ... c'est ce que dit ma cicatrice. Le feu, c'est la passion, la colere, et les toasts trop cuits. QUESTION : on allume la flamme interieure avec... ?",
+            listOf("Un briquet (TRICHEUR !)", "La colere des sourcils fronces", "Du fromage"), 1
+        )
+    }
+
+    /** L'accueil du mage : menu des elements restants, ou papotage si diplome. */
+    private fun magicianTalk(w: Walker) {
+        dialogueName = "Maitre Zephyrin"
+        val left = (0..3).filter { !spellKnown[it] }
+        if (left.isEmpty()) {
+            val p = persoFor(w)
+            dialogue = try {
+                if (p != null) VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+                else "Mon meilleur eleve ! Snif. FIERTE."
+            } catch (t: Throwable) { "Mon meilleur eleve ! Snif. FIERTE." }
+            setBubbleAt(w)
+            offerChatChoices(w)
+            return
+        }
+        val n = 4 - left.size
+        dialogue = when (n) {
+            0 -> "AH ! Un cerveau tout frais ! Je suis Maitre Zephyrin, 400 ans, toutes mes dents (magiques). Quelle magie elementaire veux-tu apprendre ?"
+            1 -> "Te revoila, apprenti ! L'arbre m'a dit du bien de toi. Il exagere toujours. La suite du programme ?"
+            2 -> "Deja la MOITIE du programme ! A ce rythme tu me remplaceras. NE me remplace pas. Bon, la suite ?"
+            else -> "PLUS QU'UNE ! Je sens l'emotion monter. Ou alors c'est la fiole verte. Alors ?"
+        }
+        setBubbleAt(w)
+        dlgWalkerIdx = walkers.indexOf(w)
+        dlgKind = 1
+        dlgElems = left
+        dlgChoices = left.map { LESSON_NAMES[it] } + "Juste discuter"
+    }
+
+    /** Le heros a touche une reponse. */
+    private fun onDialogueChoice(k: Int) {
+        val kind = dlgKind
+        val w = walkers.getOrNull(dlgWalkerIdx)
+        dlgChoices = emptyList()
+        if (w == null) return
+        when (kind) {
+            0 -> {   // papotage generique, avec TOUT le monde
+                val p = persoFor(w) ?: return
+                dialogue = try { VillagerAI.repondre(p, k, npcRnd) } catch (t: Throwable) { "..." }
+                dialogueName = p.nom
+                setBubbleAt(w)
+                if (k != 2) offerChatChoices(w)   // au revoir = fin de la discussion
+            }
+            1 -> {   // menu du mage
+                if (k >= dlgElems.size) {   // "Juste discuter"
+                    val p = persoFor(w) ?: return
+                    dialogue = try { VillagerAI.parler(p, time, world.bossDefeated, npcRnd) } catch (t: Throwable) { "Les runes, tout ca..." }
+                    dialogueName = "Maitre Zephyrin"
+                    setBubbleAt(w)
+                    offerChatChoices(w)
+                    return
+                }
+                val e = dlgElems[k]
+                val (cours, reponses, bonne) = lessonFor(e)
+                dialogue = cours
+                dialogueName = "Maitre Zephyrin"
+                setBubbleAt(w)
+                dlgKind = 2
+                dlgElem = e
+                dlgCorrect = bonne
+                dlgChoices = reponses
+            }
+            2 -> {   // reponse au cours
+                if (k == dlgCorrect) {
+                    spellKnown[dlgElem] = true
+                    spellDemo = dlgElem
+                    spellDemoT = 1.2f
+                    audio.play("win")
+                    saveGame()
+                    val fini = spellKnown.all { it }
+                    dialogue = if (fini)
+                        "TOUS LES ELEMENTS !!! Tu es... snif... MON CHEF-D'OEUVRE ! Sens cette puissance : bientot, tu la LANCERAS !"
+                    else
+                        "EXACT !! " + LESSON_NAMES[dlgElem] + " coule desormais dans tes veines ! Regarde-moi ce joli tourbillon ! Bon. La suite ?"
+                    dialogueName = "Maitre Zephyrin"
+                    setBubbleAt(w)
+                    if (!fini) {
+                        dlgKind = 1
+                        dlgElems = (0..3).filter { !spellKnown[it] }
+                        dlgChoices = dlgElems.map { LESSON_NAMES[it] } + "Juste discuter"
+                    } else {
+                        offerChatChoices(w)
+                    }
+                } else {
+                    val p = persoFor(w)
+                    if (p != null) p.memoire.vexe = (p.memoire.vexe + 1).coerceAtMost(4)
+                    dialogue = listOf(
+                        "NON NON NON ET NON !!! *il fume des oreilles* ... Pardon. Le calme. La respiration. ON REPREND ?",
+                        "QUOI ?! *une fiole explose toute seule* ... Ce n'etait pas la verte, ca va. On reessaie ?",
+                        "AAARGH ! 400 ans de pedagogie pour CA !! *inspire* ... L'arbre me dit d'etre patient. RECOMMENCE."
+                    )[npcRnd.nextInt(3)]
+                    dialogueName = "Maitre Zephyrin"
+                    setBubbleAt(w)
+                    val (_, reponses, _) = lessonFor(dlgElem)
+                    dlgKind = 2
+                    dlgChoices = reponses
+                }
+            }
+        }
+    }
+
     private fun talkTo(w: Walker) {
+        dlgChoices = emptyList()   // toute nouvelle discussion repart de zero
         dialogueX = w.x
         dialogueY = w.y
         if (w.kind == 0 && villagers.isNotEmpty()) {
@@ -1579,11 +1773,11 @@ class GameView(context: Context) : View(context) {
                         VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
                     } catch (t: Throwable) { "No futur, l'ami." }
                 }
-            } else questDialogue(w.id) ?: try {
+            } else questDialogue(w.id) ?: (try {
                 VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
             } catch (t: Throwable) {
                 "Belle journee, non ?"
-            }
+            }).also { if (p.nom != "Kaos") offerChatChoices(w) }
             dialogueName = p.nom
         } else if (w.kind == 0) {
             dialogue = listOf(
@@ -1599,10 +1793,15 @@ class GameView(context: Context) : View(context) {
                     VillagerAI.parler(p2, time, world.bossDefeated, npcRnd)
                 } catch (t: Throwable) { "Oi ! Punk's not dead." }
                 dialogueName = p2.nom
+                offerChatChoices(w)
             } else {
                 dialogue = "Oi !"
                 dialogueName = ""
             }
+        } else if (w.kind == 5) {
+            // Maitre Zephyrin : les cours de magie du Grand Arbre
+            magicianTalk(w)
+            return
         } else if (w.kind == 4) {
             // Les heros de la guilde
             val idx3 = 17 + w.id
@@ -1612,6 +1811,7 @@ class GameView(context: Context) : View(context) {
                     VillagerAI.parler(p3, time, world.bossDefeated, npcRnd)
                 } catch (t: Throwable) { "Pour la guilde !" }
                 dialogueName = p3.nom
+                offerChatChoices(w)
             } else {
                 dialogue = "Pour la guilde !"
                 dialogueName = ""
@@ -1755,15 +1955,58 @@ class GameView(context: Context) : View(context) {
                 0 -> "PARLER"
                 2 -> "PARLER"
                 4 -> "PARLER"
+                5 -> "PARLER AU MAGE"
                 3 -> if (wk.id == 1) "PARLER A PIERRE" else "PARLER A FRANKI"
                 else -> "CARESSER"
             }
         }
     }
 
+    /** Les reponses a choix multiples, empilees au-dessus du bouton d'action. */
+    private fun drawDialogueChoices(canvas: Canvas, w: Float, h: Float) {
+        dlgChoiceRects.clear()
+        if (dlgChoices.isEmpty() || dialogueT <= 0f) return
+        paint.textSize = h * 0.02f
+        paint.isFakeBoldText = true
+        val bh = h * 0.052f
+        val gap = h * 0.012f
+        var yb = boardBottom - h * 0.02f - bh
+        for (k in dlgChoices.indices.reversed()) {
+            val label = dlgChoices[k]
+            val tw = paint.measureText(label)
+            val bw = (tw + h * 0.06f).coerceAtLeast(w * 0.42f)
+            val r = RectF(w / 2f - bw / 2f, yb, w / 2f + bw / 2f, yb + bh)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(235, 26, 30, 48)
+            canvas.drawRoundRect(r, bh / 2f, bh / 2f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = h * 0.0035f
+            paint.color = Color.rgb(210, 175, 90)
+            canvas.drawRoundRect(r, bh / 2f, bh / 2f, paint)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(240, 235, 220)
+            paint.textAlign = Paint.Align.CENTER
+            canvas.drawText(label, r.centerX(), r.centerY() + h * 0.0075f, paint)
+            while (dlgChoiceRects.size <= k) dlgChoiceRects.add(RectF())
+            dlgChoiceRects[k] = r
+            yb -= bh + gap
+        }
+        paint.isFakeBoldText = false
+    }
+
+    /** La demonstration d'un sort fraichement appris, autour du heros. */
+    private fun drawSpellDemo(canvas: Canvas, w: Float) {
+        if (spellDemo < 0 || spellDemoT <= 0f) return
+        val ph = (1f - spellDemoT / 1.2f).coerceIn(0f, 0.999f)
+        val f = (ph * 5).toInt().coerceIn(0, 4)
+        val b = spellBmp(spellDemo, heroDir.coerceIn(0, 3), f)
+        drawSprite(canvas, b, sx(fx, w), sy(fy) - tile * 0.55f, tile * (1.6f + ph * 1.4f), 235)
+    }
+
     /** Le bouton d'interaction contextuel. */
     private fun drawActionButton(canvas: Canvas, w: Float, h: Float) {
         updateInteraction()
+        if (dlgChoices.isNotEmpty() && dialogueT > 0f) { btnAct.setEmpty(); return }
         if (actKind == 0) { btnAct.setEmpty(); return }
         paint.textSize = h * 0.021f
         paint.isFakeBoldText = true
@@ -2361,6 +2604,7 @@ class GameView(context: Context) : View(context) {
 
         drawDialogue(canvas, w, h)
         drawActionButton(canvas, w, h)
+        drawDialogueChoices(canvas, w, h)
         drawHud(canvas, w, h)
         if (joyOn && joyOwned) drawJoystick(canvas)
 
@@ -2810,6 +3054,7 @@ class GameView(context: Context) : View(context) {
         drawMooredBoat(canvas, w)
         drawFloatingSlip(canvas, w)
         drawFishing(canvas, w)
+        drawSpellDemo(canvas, w)
         // Les mouettes
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = tile * 0.06f
@@ -3340,6 +3585,7 @@ class GameView(context: Context) : View(context) {
                 2 -> sPunk[(wk.id - 1) % 7]
                 3 -> sFisher[(wk.id - 1) % 2]
                 4 -> sGld[(wk.id - 1) % 10]
+                5 -> sMage
                 else -> sPet[(wk.id - 1) % 10]
             }
             val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f
@@ -4785,6 +5031,20 @@ class GameView(context: Context) : View(context) {
         if (btnCenter.contains(e.x, e.y)) { following = true; return true }
         if (btnMenu.contains(e.x, e.y)) { showMenu = true; return true }
 
+        // Les reponses a choix multiples : priorite absolue
+        if (dlgChoices.isNotEmpty() && dialogueT > 0f) {
+            for (k in dlgChoices.indices) {
+                if (k < dlgChoiceRects.size && dlgChoiceRects[k].contains(e.x, e.y)) {
+                    audio.play("pickup")
+                    onDialogueChoice(k)
+                    return true
+                }
+            }
+            // toucher ailleurs : on met fin poliment a la discussion
+            dlgChoices = emptyList()
+            dialogueT = dialogueT.coerceAtMost(1.2f)
+            return true
+        }
         // Pendant la peche : toucher le plateau = ferrer (ou remonter la ligne)
         if (fishing && e.y in boardTop..boardBottom) {
             if (fishBiteT > 0f) catchFish() else stopFishing("Vous remontez la ligne. Rien au bout.")

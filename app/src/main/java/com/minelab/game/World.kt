@@ -778,9 +778,10 @@ class World(
         val px = cx(islandPortal)
         // (Les batiments seront ajoutes un par un, plus tard.)
         // Villageois et animaux dans le village
-        // Qui habite ou : chaumiere -> Rosa (7) + Milo (6) ; forge -> Bran (2) ;
+        // Qui habite ou : chaumiere -> Rosa (7) + Milo (6) + mamie Agathe (5) ;
+        // forge -> Bran (2) ; squat -> Pip le reveur (10) y squatte ;
         // cabane d'alchimiste -> Lila (3). Kaos (11) traine devant son squat.
-        val residents = mapOf(1 to listOf(7, 6), 2 to listOf(2), 4 to listOf(3))
+        val residents = mapOf(1 to listOf(7, 6, 5), 2 to listOf(2), 3 to listOf(10), 4 to listOf(3))
         val indoorIds = residents.values.flatten().toSet()
         for ((hn, ids) in residents) {
             for ((k, id) in ids.withIndex()) {

@@ -157,6 +157,15 @@ class GameView(context: Context) : View(context) {
     private var fishHx = 0               // position du heros au lancer (bouger = remonter la ligne)
     private var fishHy = 0
     private var fishCount = 0            // poissons frais dans la besace
+    // --- quetes farfelues des villageois : 0 pas proposee, 1 en cours, 2 accomplie ---
+    private val vQuest = IntArray(11)    // indexe par l'id du villageois (1..10)
+    private var fishTotal = 0            // poissons peches en tout (stat)
+    private var bootCount = 0            // vieilles bottes remontees (Tomas les collectionne)
+    private var algaeCount = 0           // paquets d'algues remontes (le pull de Nina)
+    private var petCount = 0             // animaux caresses (pour Agathe)
+    private var drinksDone = 0           // canettes bues (le defi de Milo)
+    private var clubVisited = false      // on a danse au Punk Club (les poules de Rosa)
+    private var swordSharp = false       // Bran a affute l'epee : 55 degats au lieu de 40
     private var ticketOwned = false
     private var tripT = 0f
     private val vendorsUsed = HashSet<Int>()
@@ -567,6 +576,8 @@ class GameView(context: Context) : View(context) {
         shroomCount = 0; spraysDone = 0; tripT = 0f
         metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
         fishing = false; fishBiteT = 0f; fishCount = 0
+        vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
+        petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -662,6 +673,14 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("rod", rodOwned)
         e.putInt("casts", fishCasts)
         e.putInt("fish", fishCount)
+        e.putString("vq", vQuest.joinToString(""))
+        e.putInt("fishT", fishTotal)
+        e.putInt("boots", bootCount)
+        e.putInt("algae", algaeCount)
+        e.putInt("pets", petCount)
+        e.putInt("drinks", drinksDone)
+        e.putBoolean("club", clubVisited)
+        e.putBoolean("sharp", swordSharp)
         e.putBoolean("slip", slipOwned)
         e.putBoolean("ticket", ticketOwned)
         e.putBoolean("shroomT", world.shroomTaken)
@@ -750,6 +769,15 @@ class GameView(context: Context) : View(context) {
         rodOwned = prefs.getBoolean("rod", false)
         fishCasts = prefs.getInt("casts", 0)
         fishCount = prefs.getInt("fish", 0)
+        val vq = prefs.getString("vq", "") ?: ""
+        for (k in vQuest.indices) vQuest[k] = if (k < vq.length) (vq[k] - '0').coerceIn(0, 2) else 0
+        fishTotal = prefs.getInt("fishT", 0)
+        bootCount = prefs.getInt("boots", 0)
+        algaeCount = prefs.getInt("algae", 0)
+        petCount = prefs.getInt("pets", 0)
+        drinksDone = prefs.getInt("drinks", 0)
+        clubVisited = prefs.getBoolean("club", false)
+        swordSharp = prefs.getBoolean("sharp", false)
         slipOwned = prefs.getBoolean("slip", false)
         ticketOwned = prefs.getBoolean("ticket", false)
         world.shroomTaken = prefs.getBoolean("shroomT", false)
@@ -908,6 +936,7 @@ class GameView(context: Context) : View(context) {
         when {
             roll < 0.62f -> {
                 fishCount++
+                fishTotal++
                 audio.play("pickup")
                 showMsg(
                     listOf(
@@ -917,10 +946,19 @@ class GameView(context: Context) : View(context) {
                     )[r.nextInt(3)]
                 )
             }
-            roll < 0.78f -> { audio.play("error"); showMsg("Une vieille botte... Relancez !") }
-            roll < 0.90f -> { audio.play("error"); showMsg("Des algues puantes. Beurk. Relancez !") }
+            roll < 0.78f -> {
+                bootCount++
+                audio.play("error")
+                showMsg("Une vieille botte... (+1 botte - quelqu'un les collectionne, parait-il)")
+            }
+            roll < 0.90f -> {
+                algaeCount++
+                audio.play("error")
+                showMsg("Des algues puantes. Beurk. (+1 paquet - ca interesse peut-etre quelqu'un ?)")
+            }
             else -> {
                 fishCount += 2
+                fishTotal += 2
                 audio.play("chest")
                 showMsg("DOUBLE PRISE ! Deux poissons d'un coup ! (+2)")
             }
@@ -1207,7 +1245,7 @@ class GameView(context: Context) : View(context) {
         for (m in mobs) {
             if (m.hp <= 0) continue
             if (hypot(m.x - fx, m.y - fy) <= (if (m.boss) 1.9f else 1.45f)) {
-                m.hp -= 40
+                m.hp -= if (swordSharp) 55 else 40
                 m.hitT = 0.28f
                 hit = true
                 audio.play("hit")
@@ -1431,6 +1469,80 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * Les quetes farfelues des villageois. Premiere rencontre = proposition ;
+     * ensuite rappel ou accomplissement. Renvoie null quand la quete est
+     * accomplie : le villageois papote alors normalement (VillagerAI).
+     */
+    private fun questDialogue(id: Int): String? {
+        if (id !in 1..10) return null
+        if (vQuest[id] == 2) return null
+        if (vQuest[id] == 0) {
+            vQuest[id] = 1
+            saveGame()
+            return when (id) {
+                1 -> "Mon auberge ouvrira bientot, mais ma SOUPE manque de corps... Apporte-moi 3 poissons frais, tu seras mon premier client !"
+                2 -> "Une epee, ca s'entretient ! Desamorce 5 mines dans le donjon et rapporte-moi la ferraille : je t'AFFUTE la lame, promis."
+                3 -> "Kaos refuse de vendre ses CHAMPIGNONS aux 'non-punks'. Toi il t'aime bien... apporte-m'en UN pour mes potions !"
+                4 -> "Tu vois mes pots de fleurs ? Des BOTTES ! Peche-m'en 2 vieilles bottes. C'est ma passion secrete, n'en parle a personne."
+                5 -> "Mes vieux genoux ne me portent plus... Caresse 3 animaux du village de ma part, veux-tu ? Ils me manquent tant."
+                6 -> "T'es CAP de boire une 8.6 d'un coup ?! Moi maman veut pas. FAIS-LE, je te donne ma bille porte-bonheur !!"
+                7 -> "Mes poules pondent MOU. Il leur faut des vibrations : va DANSER au Punk Club et reviens sentir le punk a plein nez !"
+                8 -> "Halte ! Un heros, TOI ? Prouve-le : terrasse le SEIGNEUR du donjon, et je te ferai le salut militaire. Ca n'arrive jamais."
+                9 -> "Je tisse un pull en fibres marines, l'avenir de la mode ! Peche-moi 2 paquets d'ALGUES bien puantes. L'odeur partira. Peut-etre."
+                else -> "J'ai reve d'un SLIP qui volait au-dessus de la mer, majestueux, libre... Dis-moi que c'est VRAI, que je ne suis pas fou !"
+            }
+        }
+        // vQuest[id] == 1 : la quete est-elle accomplie ?
+        return when (id) {
+            1 -> if (fishCount >= 3) {
+                fishCount -= 3; vQuest[1] = 2; hp = 100
+                audio.play("win"); saveGame()
+                "TROIS beaux poissons ! Goute-moi cette soupe... ET VOILA ! Des forces pour cent ans ! (PV au maximum)"
+            } else "Il me faut 3 poissons frais (tu en as $fishCount). La mer t'attend, la canne aussi !"
+            2 -> if (disarmed >= 5) {
+                vQuest[2] = 2; swordSharp = true
+                audio.play("sword"); saveGame()
+                "De la belle ferraille ! CLING, CLANG, TCHAK... Ton epee est AFFUTEE : elle frappe bien plus fort desormais !"
+            } else "Il me faut la ferraille de 5 mines desamorcees ($disarmed/5). Le donjon en regorge !"
+            3 -> if (shroomCount >= 1) {
+                shroomCount--; vQuest[3] = 2; energyCount += 2
+                audio.play("chest"); saveGame()
+                "Un champignon de Kaos ! Fascinant... Tiens, 2 elixirs de ma reserve. (Bon, ce sont des canettes. Mais CHUT.)"
+            } else "Un seul champignon de Kaos me suffit. Gagne d'abord sa confiance... a la punk."
+            4 -> if (bootCount >= 2) {
+                bootCount -= 2; vQuest[4] = 2; fishCount += 2
+                audio.play("chest"); saveGame()
+                "DEUX BOTTES ! Splendides ! Des geraniums dedans, ce sera un poeme. Tiens, 2 poissons de ma reserve, collegue !"
+            } else "Encore ${2 - bootCount} vieille(s) botte(s) a remonter. Les poissons, garde-les : moi c'est les BOTTES."
+            5 -> if (petCount >= 3) {
+                vQuest[5] = 2; hp = (hp + 30).coerceAtMost(100)
+                audio.play("heart"); saveGame()
+                "Trois betes caressees... je le sens jusque dans mon vieux coeur. Recois la benediction de la doyenne ! (+30 PV)"
+            } else "Caresse encore ${(3 - petCount).coerceAtLeast(1)} animal(aux) pour moi. Ils adorent, tu verras."
+            6 -> if (drinksDone >= 1) {
+                vQuest[6] = 2; hp = (hp + 15).coerceAtMost(100)
+                audio.play("simon2"); saveGame()
+                "T'AS OSE ?! T'ES TROP FORT !! Tiens, ma bille porte-bonheur. (+15 PV. Ne demande pas pourquoi, elle marche.)"
+            } else "Une 8.6 du distributeur, CUL SEC ! Je te regarde. (Buvez-en une depuis l'inventaire.)"
+            7 -> if (clubVisited) {
+                vQuest[7] = 2; hp = (hp + 25).coerceAtMost(100)
+                audio.play("chest"); saveGame()
+                "Tu SENS le punk a plein nez, PARFAIT ! Mes poules pondent deja plus dur. Tiens, des oeufs tout frais ! (+25 PV)"
+            } else "Le Punk Club, au bout du village ! Danse, transpire, impregne-toi, et reviens me voir."
+            8 -> if (world.bossDefeated) {
+                vQuest[8] = 2; energyCount++
+                audio.play("win"); saveGame()
+                "Le SEIGNEUR du donjon, terrasse... GARDE-A-VOUS ! *salut militaire* Recois ma ration de campagne. (+1 canette)"
+            } else "Le SEIGNEUR du donjon vit toujours. Reviens quand ce sera regle, recrue."
+            else -> if (metPierre || slipOwned || ticketOwned) {
+                vQuest[10] = 2; hp = (hp + 15).coerceAtMost(100)
+                audio.play("heart"); saveGame()
+                "Il EXISTE ?! Un slip libre, flottant sur la mer infinie... Je vais ecrire un poeme-fleuve. MERCI ! (+15 PV d'emotion)"
+            } else "Va voir les pecheurs au sud-ouest... si mon reve dit vrai, quelque chose de majestueux flotte la-bas."
+        }
+    }
+
     private fun talkTo(w: Walker) {
         dialogueX = w.x
         dialogueY = w.y
@@ -1446,7 +1558,7 @@ class GameView(context: Context) : View(context) {
                         VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
                     } catch (t: Throwable) { "No futur, l'ami." }
                 }
-            } else try {
+            } else questDialogue(w.id) ?: try {
                 VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
             } catch (t: Throwable) {
                 "Belle journee, non ?"
@@ -1509,6 +1621,8 @@ class GameView(context: Context) : View(context) {
             dialogue = listOf("Ouaf !", "Miaou...", "Cot cot !", "Meuh...", "Beee !",
                 "Groin groin !", "Hihan !", "Couac !", "Piou piou !", "Sniff sniff...")[(w.id - 1) % 10]
             dialogueName = ""
+            petCount++
+            saveGame()
         }
         // La bulle reste plus longtemps si la phrase est longue
         val dur = (2.2f + dialogue.length * 0.045f).coerceAtMost(5.5f)
@@ -1637,7 +1751,10 @@ class GameView(context: Context) : View(context) {
             showMsg("Le videur : \"Place de concert obligatoire.\" (voir Pierre le pecheur)")
             return
         }
-        if (n == 5) showMsg("LE PUNK CLUB ! Le son est ENORME !")
+        if (n == 5) {
+            showMsg("LE PUNK CLUB ! Le son est ENORME !")
+            if (!clubVisited) { clubVisited = true; saveGame() }
+        }
         enterHouse(n)
     }
 
@@ -3679,7 +3796,9 @@ class GameView(context: Context) : View(context) {
             metPierre && !rodOwned -> "Quete : demander la canne a Franki (plage sud-ouest)."
             rodOwned && !slipOwned && !ticketOwned -> "Quete : pecher le SLIP qui flotte au large (touchez l'eau) !"
             slipOwned -> "Quete : rapporter le slip a Pierre !"
-            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village : la chaumiere et la forge sont ouvertes !"
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) && vQuest.count { it == 1 } > 0 ->
+                "Quetes du village : ${vQuest.count { it == 1 }} en cours. Reparlez aux villageois !"
+            world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village : parlez aux habitants, ils ont tous besoin de vous !"
             world.isIsland(hx, hy) -> "L'ile ! Explorez la plage, les bois et la place au sud."
             world.bossDefeated -> "Objectif : le PORTAIL au centre de la salle des couleurs !"
             world.wave in 1..3 -> "BOSS : vague ${world.wave} / 3 - battez-vous !"
@@ -3812,6 +3931,7 @@ class GameView(context: Context) : View(context) {
             arrayOf(sSlip, "Slip de Pierre", if (slipOwned) "rapportez-le a Pierre !" else "0", Color.rgb(240, 230, 210)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Poisson frais", if (fishCount > 0) "$fishCount - touchez pour manger" else "0", Color.rgb(110, 220, 190)),
+            arrayOf(null, "Bottes / Algues (peche)", "$bootCount / $algaeCount", Color.rgb(180, 150, 110)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
             arrayOf(null, "Points de vie", if (godMode) "illimites" else "$hp / 100", Color.rgb(215, 90, 85)),
@@ -3820,7 +3940,7 @@ class GameView(context: Context) : View(context) {
         var y = h * 0.135f
         val bw = w * 0.84f
         val bx = (w - bw) / 2f
-        val rh = h * 0.049f
+        val rh = h * 0.046f
         for (r in rows) {
             val icon = r[0] as Bitmap?
             val label = r[1] as String
@@ -3855,7 +3975,7 @@ class GameView(context: Context) : View(context) {
             paint.textSize = h * 0.0165f
             canvas.drawText(value, bx + bw - h * 0.02f, icy + h * 0.007f, paint)
             paint.isFakeBoldText = false
-            y += rh + h * 0.0075f
+            y += rh + h * 0.007f
         }
         paint.textAlign = Paint.Align.CENTER
         paint.color = Color.rgb(150, 160, 185)
@@ -4420,6 +4540,7 @@ class GameView(context: Context) : View(context) {
                 showMsg(if (joyOn) "Joystick active !" else "Joystick desactive.")
             } else if (invEnergyRect.contains(e.x, e.y) && energyCount > 0) {
                 energyCount--
+                drinksDone++
                 hp = (hp + 30).coerceAtMost(100)
                 saveGame()
                 showMsg("Glouglou ! +30 PV")

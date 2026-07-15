@@ -39,15 +39,20 @@ class Audio(private val ctx: Context) {
             R.raw.music5, R.raw.music6, R.raw.music7, R.raw.music8,
             R.raw.village1, R.raw.village2, R.raw.village3,
             R.raw.village4, R.raw.village5, R.raw.village6,
-            R.raw.punk_slip
+            R.raw.punk_slip,
+            R.raw.punk_champi1, R.raw.punk_champi2, R.raw.taverne_song
         )
         val TRACK_NAMES = arrayOf(
             "donjon 1", "donjon 2", "donjon 3", "donjon 4",
             "donjon 5", "donjon 6", "donjon 7", "donjon 8",
             "village lent 1", "village lent 2", "village rapide 1",
             "village rapide 2", "village joyeux 1", "village joyeux 2",
-            "Le slip a Pierre (PUNK!)"
+            "Le slip a Pierre (PUNK!)",
+            "Champis Magiques I", "Champis Magiques II", "Chanson du bar"
         )
+        const val T_CHAMPI1 = 15
+        const val T_CHAMPI2 = 16
+        const val T_TAVERNE = 17
         const val NONE = -1
     }
 
@@ -61,6 +66,8 @@ class Audio(private val ctx: Context) {
     private var player: MediaPlayer? = null
     private var currentZone = -1
     private var currentTrack = -2
+    /** Piste ponctuelle (concert, chanson de bar) qui prime sur la zone. */
+    private var eventTrack = NONE
 
     // ------------------------------------------------------------ musique
 
@@ -72,11 +79,14 @@ class Audio(private val ctx: Context) {
 
     /** A appeler quand les reglages changent. */
     fun refresh() {
+        // Si la musique est coupee, on arrete aussi un titre evenementiel en cours
+        if (!musicOn && eventTrack != NONE) { eventTrack = NONE; stopMusic() }
         currentTrack = -2
         applyTrack()
     }
 
     private fun applyTrack() {
+        if (eventTrack != NONE) return    // un titre ponctuel a la priorite
         val z = currentZone
         if (z < 0 || z >= zoneTrack.size) return
         val t = if (musicOn) zoneTrack[z] else NONE
@@ -94,6 +104,44 @@ class Audio(private val ctx: Context) {
             player = null
         }
     }
+
+    /**
+     * Joue un TITRE ponctuel (une chanson du groupe, la chanson du bar...) qui
+     * couvre la musique de zone. A la fin, la musique de zone reprend seule.
+     * Ne re-declenche pas le meme titre s'il tourne deja.
+     */
+    fun playEvent(track: Int) {
+        if (!musicOn) return
+        if (eventTrack == track && player != null) return
+        eventTrack = track
+        currentTrack = -3            // force le rechargement quand on reviendra a la zone
+        stopMusic()
+        try {
+            val mp = MediaPlayer.create(ctx, TRACKS[track]) ?: return
+            mp.isLooping = false
+            mp.setVolume(musicVol, musicVol)
+            mp.setOnCompletionListener {
+                eventTrack = NONE
+                currentTrack = -2
+                applyTrack()          // la musique de zone reprend
+            }
+            mp.start()
+            player = mp
+        } catch (e: Exception) {
+            eventTrack = NONE
+            player = null
+        }
+    }
+
+    /** Coupe un titre evenementiel en cours (ex : on quitte la salle). */
+    fun stopEvent() {
+        if (eventTrack == NONE) return
+        eventTrack = NONE
+        currentTrack = -2
+        applyTrack()
+    }
+
+    fun isEventPlaying() = eventTrack != NONE
 
     fun setVolume(v: Float) {
         musicVol = v.coerceIn(0f, 1f)

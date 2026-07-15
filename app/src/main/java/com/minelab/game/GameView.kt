@@ -1839,6 +1839,7 @@ class GameView(context: Context) : View(context) {
 
     /** Ce que le village SAIT (ou saura bientot) des exploits du heros. */
     private var rumeurT = 0f            // horloge de propagation des rumeurs
+    private var champiGiven = 0        // combien de champis distribues au concert (alterne les titres)
 
     /** Cree une rumeur dans le village (evenement notable du heros). */
     private fun noteRumeur(cle: String, texte: String, positif: Boolean) {
@@ -2501,6 +2502,13 @@ class GameView(context: Context) : View(context) {
         }
         if (best >= 0) {
             val wk = walkers[best]
+            // Dans la salle de concert, offrir un champi a un punk lance la musique !
+            val inClub = world.isInterior(hx, hy) && world.interiorOf(hx, hy) == 5
+            if (inClub && shroomCount > 0 && (wk.kind == 2 || wk.kind == 0)) {
+                actKind = 8; actData = best
+                actLabel = "OFFRIR UN CHAMPI"
+                return
+            }
             actKind = 3; actData = best
             actLabel = when (wk.kind) {
                 0 -> "PARLER"
@@ -2592,7 +2600,26 @@ class GameView(context: Context) : View(context) {
             5 -> boardBoat(actData)
             6 -> disembark(actData)
             7 -> leaveSecretCache(actData)
+            8 -> offrirChampi(actData)
         }
+    }
+
+    /** Offrir un champi a quelqu'un dans la salle : le groupe joue ! */
+    private fun offrirChampi(walkerIdx: Int) {
+        if (shroomCount <= 0) return
+        val wk = walkers.getOrNull(walkerIdx) ?: return
+        shroomCount--
+        champiGiven++
+        // 2 titres, en alternance a chaque champi offert
+        val track = if (champiGiven % 2 == 1) Audio.T_CHAMPI1 else Audio.T_CHAMPI2
+        audio.playEvent(track)
+        tripT = 6f                      // petit effet visuel psychedelique
+        // le PNJ regarde le heros, tout le monde est content
+        val p = persoFor(wk)
+        p?.memoire?.pousserHumeur(0.6f, "tu m'as file un champi magique", time)
+        val nom = p?.nom ?: "Le punk"
+        showMsg("$nom goute le champi... LE GROUPE SE MET A JOUER ! Le concert commence !")
+        saveGame()
     }
 
     /** Sauter dans la barque : on peut alors ramer sur toute la mer. */
@@ -2635,7 +2662,10 @@ class GameView(context: Context) : View(context) {
         }
         if (n == 6) showMsg("LA GUILDE ! \"La force du groupe, la gloire a tous !\"")
         if (n == 7) showMsg("LE GRAND ARBRE... Les runes murmurent doucement.")
-        if (n == 8) showMsg("LA TAVERNE ! Biere, vin, repas ET histoires !")
+        if (n == 8) {
+            showMsg("LA TAVERNE ! Biere, vin, repas ET histoires !")
+            audio.playEvent(Audio.T_TAVERNE)   // la chanson du bar !
+        }
         enterHouse(n)
     }
 
@@ -2648,6 +2678,7 @@ class GameView(context: Context) : View(context) {
     }
 
     private fun leaveHouse(n: Int) {
+        audio.stopEvent()
         var mat = -1
         for ((cell, hn) in world.houseMats) if (hn == n && world.isIsland(world.cx(cell), world.cy(cell))) mat = cell
         if (mat < 0) return

@@ -84,7 +84,15 @@ object VillagerAI {
             Perso("Cedric", "moine", 0.7f, 0.1f),
             Perso("Freya", "valkyrie", 0.5f, 0.6f),
             // Le professeur de magie du Grand Arbre (indice 28)
-            Perso("Maitre Zephyrin", "magicien", 1.0f, 0.6f)
+            Perso("Maitre Zephyrin", "magicien", 1.0f, 0.6f),
+            // La TAVERNE : le tavernier (29) et ses 6 clients (30..35)
+            Perso("Grimbeard", "tavernier", 0.9f, 0.6f),
+            Perso("Vieux Rowhere", "ivrogne", 1.0f, 0.3f),
+            Perso("Sombre", "voleuse", 0.5f, 0.7f),
+            Perso("Ferra", "forgeronne", 0.6f, 0.8f),
+            Perso("Krogg", "mercenaire", 0.4f, 0.9f),
+            Perso("Aldemar", "noble", 0.7f, 0.5f),
+            Perso("Lyria", "barde", 1.0f, 0.1f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.
@@ -359,6 +367,42 @@ object VillagerAI {
             "Dans mon pays, la mer est SOLIDE l'hiver. Imagine.",
             "Ton epee est correcte. Ton cri de guerre, a travailler."
         ),
+        "tavernier" to listOf(
+            "Une 8.6 ? J'ai QUE ca. C'est une taverne de gout.",
+            "Paye ta tournee, l'aventurier, et je te raconte tout.",
+            "Ici : biere, baffes, et bonnes histoires. Dans cet ordre.",
+            "Casse un verre, tu paies DIX. Regle de la maison."
+        ),
+        "ivrogne" to listOf(
+            "Hips ! ... T'etais la, toi, hier ? Non ? Moi non plus.",
+            "BIERE, GLOIRE ET CHAOS ! ... c'est ecrit sur mon dos.",
+            "J'ai bu avec un dragon, un jour. Il tenait MAL l'alcool.",
+            "La sortie tourne. Ou c'est moi. Hips."
+        ),
+        "voleuse" to listOf(
+            "Garde ta bourse, l'ami. ... Trop tard. Je plaisante. Peut-etre.",
+            "VOLER OU MOURIR. Devise de famille. Charmante, non ?",
+            "J'ai des doigts de fee. Et des fees dans mes poches.",
+            "Ne compte pas ton or devant moi. Ca me DONNE des idees."
+        ),
+        "forgeronne" to listOf(
+            "Bran ? Un amateur. Mon marteau pese le double.",
+            "Je bois autant que je forge. C'est-a-dire ENORMEMENT.",
+            "Ton armure est en carton. Passe a ma forge, un jour.",
+            "Le metal, la biere : deux choses qu'on travaille a chaud."
+        ),
+        "mercenaire" to listOf(
+            "BIERE OU MORT. J'ai choisi. Devine quoi.",
+            "Mon epee est a louer. Mon amitie, elle, se merite.",
+            "J'ai vu des donjons pires. Un peu. Pas beaucoup.",
+            "Paie d'avance. Les heros morts font de mauvais clients."
+        ),
+        "noble" to listOf(
+            "Noblesse degradee, fierte intacte. Sers-moi a boire.",
+            "J'ai fui le chateau pour CA : la vraie vie sent la biere.",
+            "Un titre ne vaut rien ici. Un bon coup de poing, si.",
+            "Mes ancetres se retournent dans leur tombe. TANT MIEUX."
+        ),
         "magicien" to listOf(
             "Les runes me chatouillent. Bon signe. Ou une allergie.",
             "J'ai transforme une mouette en theiere. Elle vole ENCORE.",
@@ -497,6 +541,41 @@ object VillagerAI {
             "Le village m'appelle 'le punk'. Ils ont RAISON.",
             "Mes champis ? Bio. Locaux. Revolutionnaires.",
             "Un jour je monterai un groupe. Nom provisoire : LES MINES."
+        ),
+        "Grimbeard" to listOf(
+            "Ma taverne, c'est mon donjon. Et j'en suis le BOSS.",
+            "J'ai barre 'BONNE ATTITUDE' sur mon tablier. Trop d'efforts.",
+            "Le distributeur du fond ? Il parle plus que mes clients."
+        ),
+        "Vieux Rowhere" to listOf(
+            "J'ai connu ce village AVANT la taverne. Sombre epoque.",
+            "Ma chope est vissee a ma main. Litteralement, je crois.",
+            "TAVERNE MAISON ET MALHEUR ! ... l'enseigne me ressemble."
+        ),
+        "Sombre" to listOf(
+            "Il te manque pas quelque chose ? ... Non ? Tant mieux.",
+            "Je collectionne les serrures. Ouvertes, de preference.",
+            "Le noble, la-bas, a une belle bourse. Je DIS ca."
+        ),
+        "Ferra" to listOf(
+            "Je forge le matin, je bois le soir. Equilibre PARFAIT.",
+            "Mon enclume s'appelle Cherie. Ne la touche pas.",
+            "Ce mercenaire pretend soulever plus lourd que moi. HA."
+        ),
+        "Krogg" to listOf(
+            "J'ai un contrat en cours. Toi. Je blague. ... Ou pas.",
+            "La forgeronne veut un bras de fer. Elle va PLEURER.",
+            "Mort ou biere. Mon menu se resume a ca."
+        ),
+        "Aldemar" to listOf(
+            "J'ai troque ma couronne contre cette chope. AUCUN regret.",
+            "La voleuse lorgne ma bourse. Elle est VIDE, ma pauvre.",
+            "Le chaos, c'est la vraie noblesse. Bois avec moi."
+        ),
+        "Lyria" to listOf(
+            "Je compose une ballade sur cette taverne. Refrain : GLOU.",
+            "La chanson avant le chaos ! ... ou l'inverse, ca depend.",
+            "Un jour je jouerai au Punk Club. Kaos m'a promis la scene !"
         )
     ) }
 
@@ -518,7 +597,14 @@ object VillagerAI {
         "Barnabe" to listOf("*gratte trois accords*", "Ca rime, en plus !"),
         "Freya" to listOf("SKAL !", "*frappe son bouclier*"),
         "Cedric" to listOf("Om.", "*inspire longuement*"),
-        "Riff" to listOf("Oi oi oi !", "*ajuste sa crete*")
+        "Riff" to listOf("Oi oi oi !", "*ajuste sa crete*"),
+        "Grimbeard" to listOf("*astique une chope*", "Sante !"),
+        "Vieux Rowhere" to listOf("Hips !", "*titube legerement*"),
+        "Sombre" to listOf("*fait tinter des clefs*", "..."),
+        "Ferra" to listOf("*vide sa chope d'un trait*", "Par l'enclume !"),
+        "Krogg" to listOf("Grmpf.", "*crache par terre*"),
+        "Aldemar" to listOf("*leve son verre*", "Quelle decheance. J'adore."),
+        "Lyria" to listOf("*gratte une corde*", "La la laaa !")
     ) }
 
     private val RX by lazy { Regex("\\{(\\w+)\\}") }
@@ -602,6 +688,48 @@ object VillagerAI {
     fun histoireDistributeur(r: Random): String {
         val pool = GP["histoire"] ?: return "GRZZT... 2,50... GRZZT..."
         return expanser(pool[r.nextInt(pool.size)], r, GP)
+    }
+
+    /** Le vieux distributeur de la TAVERNE : des legendes de comptoir. */
+    private val GT: Map<String, List<String>> by lazy { mapOf(
+        "histoire" to listOf(
+            "GLOUGLOU... Un soir, {client} a parie {mise} qu'il {exploit}. {issue}",
+            "On raconte qu'ici meme, {client} a {exploit} pour impressionner {temoin}. {issue}",
+            "Legende de comptoir : {client} et {client2} ont {exploit_duo}. {issue}",
+            "GRZZT... La table du fond ? {client} y a {exploit}. Le bois s'en souvient. {issue}",
+            "Un client a grave son nom sous le comptoir apres avoir {exploit}. {issue}"
+        ),
+        "client" to listOf(
+            "le vieux Rowhere", "Krogg le mercenaire", "Ferra la forgeronne",
+            "une voleuse masquee", "un noble en guenilles", "Grimbeard lui-meme"
+        ),
+        "client2" to listOf(
+            "un dragon deguise", "trois nains assoiffes", "un barde sans voix", "un fantome radin"
+        ),
+        "mise" to listOf(
+            "sa botte gauche", "une chanson", "son dernier or", "le secret du donjon", "sa moustache"
+        ),
+        "exploit" to listOf(
+            "bu douze chopes sans respirer", "chante l'hymne du village a l'envers",
+            "gagne un bras de fer contre l'enclume", "paye sa tournee EN ENTIER",
+            "dormi trois jours sous la grande table", "defie le tavernier a la baffe"
+        ),
+        "exploit_duo" to listOf(
+            "vide le tonneau de reserve en une nuit",
+            "reecrit l'enseigne a coups de craie",
+            "invente un cocktail interdit depuis"
+        ),
+        "temoin" to listOf("la voleuse", "toute la salle", "une mouette entree par erreur", "personne du tout"),
+        "issue" to listOf(
+            "Il a gagne. Personne ne sait comment.", "Il a perdu, mais quelle CLASSE.",
+            "Le tavernier en rit encore. Jaune.", "Depuis, c'est interdit. Officiellement.",
+            "Moralite : jamais le ventre vide.", "8.6 raisons d'y etre reste."
+        )
+    ) }
+
+    fun histoireTaverne(r: Random): String {
+        val pool = GT["histoire"] ?: return "GLOUGLOU... paie ta tournee..."
+        return expanser(pool[r.nextInt(pool.size)], r, GT)
     }
 
     // ------------------------------------------------------------ le "cerveau"

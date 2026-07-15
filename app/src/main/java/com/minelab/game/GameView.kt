@@ -178,6 +178,10 @@ class GameView(context: Context) : View(context) {
     private var spellDemo = -1
     private var spellDemoT = 0f
     private val sSpell = Array(4) { Array(4) { arrayOfNulls<Bitmap>(5) } }
+    private val sTav: Array<Array<Bitmap>> = Array(7) { i ->
+        val id = i + 1
+        arrayOf(bmp("tav${id}d"), bmp("tav${id}u"), bmp("tav${id}l"), bmp("tav${id}r"))
+    }
     private val sMage: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.maged),
         BitmapFactory.decodeResource(resources, R.drawable.mageu),
@@ -350,7 +354,7 @@ class GameView(context: Context) : View(context) {
             bmp("pet${id}d"), bmp("pet${id}u"), bmp("pet${id}l"), bmp("pet${id}r")
         )
     }
-    private val sProps: Array<Bitmap?> = arrayOfNulls(91)
+    private val sProps: Array<Bitmap?> = arrayOfNulls(103)
     private val sTrees: Array<Bitmap?> = arrayOfNulls(30)
     private val sPlants: Array<Bitmap?> = arrayOfNulls(12)
     private val sRocks: Array<Bitmap?> = arrayOfNulls(10)
@@ -406,7 +410,8 @@ class GameView(context: Context) : View(context) {
         BitmapFactory.decodeResource(resources, R.drawable.house_alchemist),
         BitmapFactory.decodeResource(resources, R.drawable.house_club),
         BitmapFactory.decodeResource(resources, R.drawable.house_guild),
-        BitmapFactory.decodeResource(resources, R.drawable.house_tree)
+        BitmapFactory.decodeResource(resources, R.drawable.house_tree),
+        BitmapFactory.decodeResource(resources, R.drawable.house_tavern)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -1490,6 +1495,9 @@ class GameView(context: Context) : View(context) {
         if (world.mageCell >= 0) {
             walkers.add(Walker(world.cx(world.mageCell) + 0.5f, world.cy(world.mageCell) + 0.5f, 5, 1))
         }
+        for ((cell, id) in world.tavernCells) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 6, id))
+        }
         if (world.pierreCell >= 0) {
             walkers.add(Walker(world.cx(world.pierreCell) + 0.5f, world.cy(world.pierreCell) + 0.5f, 3, 1))
         }
@@ -1778,6 +1786,7 @@ class GameView(context: Context) : View(context) {
         2 -> villagers.getOrNull(10 + w.id)
         4 -> villagers.getOrNull(17 + w.id)
         5 -> villagers.getOrNull(28)
+        6 -> villagers.getOrNull(28 + w.id)
         else -> null
     }
 
@@ -1995,6 +2004,19 @@ class GameView(context: Context) : View(context) {
                 dialogue = "Oi !"
                 dialogueName = ""
             }
+        } else if (w.kind == 6) {
+            // Le tavernier et ses clients
+            val p = persoFor(w)
+            dialogue = try {
+                if (p != null) {
+                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                    offerReplique(rep, w)
+                    rep.texte
+                } else "Sante !"
+            } catch (t: Throwable) { "Sante !" }
+            dialogueName = p?.nom ?: ""
+            setBubbleAt(w)
+            return
         } else if (w.kind == 5) {
             // Maitre Zephyrin : les cours de magie du Grand Arbre
             magicianTalk(w)
@@ -2077,12 +2099,13 @@ class GameView(context: Context) : View(context) {
             saveGame()
             return
         }
+        val tavern = world.vendors[cell] == 4
         dialogue = try {
-            VillagerAI.histoireDistributeur(npcRnd)
+            if (tavern) VillagerAI.histoireTaverne(npcRnd) else VillagerAI.histoireDistributeur(npcRnd)
         } catch (t: Throwable) {
             "GRZZT... 2,50... GRZZT..."
         }
-        dialogueName = "DISTRIBUTEUR 8.6"
+        dialogueName = if (tavern) "VIEUX DISTRIBUTEUR" else "DISTRIBUTEUR 8.6"
         dialogueX = world.cx(cell) + 0.5f
         dialogueY = world.cy(cell) + 0.15f
         dialogueT = (3f + dialogue.length * 0.05f).coerceAtMost(9f)
@@ -2154,6 +2177,7 @@ class GameView(context: Context) : View(context) {
                 2 -> "PARLER"
                 4 -> "PARLER"
                 5 -> "PARLER AU MAGE"
+                6 -> if (wk.id == 1) "PARLER AU TAVERNIER" else "PARLER"
                 3 -> if (wk.id == 1) "PARLER A PIERRE" else "PARLER A FRANKI"
                 else -> "CARESSER"
             }
@@ -2279,6 +2303,7 @@ class GameView(context: Context) : View(context) {
         }
         if (n == 6) showMsg("LA GUILDE ! \"La force du groupe, la gloire a tous !\"")
         if (n == 7) showMsg("LE GRAND ARBRE... Les runes murmurent doucement.")
+        if (n == 8) showMsg("LA TAVERNE ! Biere, vin, repas ET histoires !")
         enterHouse(n)
     }
 
@@ -3784,6 +3809,7 @@ class GameView(context: Context) : View(context) {
                 3 -> sFisher[(wk.id - 1) % 2]
                 4 -> sGld[(wk.id - 1) % 10]
                 5 -> sMage
+                6 -> sTav[(wk.id - 1) % 7]
                 else -> sPet[(wk.id - 1) % 10]
             }
             val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f

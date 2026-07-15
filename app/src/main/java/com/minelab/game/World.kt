@@ -94,6 +94,8 @@ class World(
     val guildSpawns = ArrayList<Pair<Int, Int>>()
     /** Maitre Zephyrin, le magicien du Grand Arbre. */
     var mageCell = -1
+    /** Le tavernier (1) et ses clients (2..7), dans la taverne. */
+    val tavernCells = ArrayList<Pair<Int, Int>>()
     var pierreCell = -1
     var frankiCell = -1
     /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
@@ -541,6 +543,25 @@ class World(
         buildHouse(4, px - 7, vy + 5)        // la cabane d'alchimiste, de l'autre cote
         buildHouse(5, px + 9, vy)            // le PUNK CLUB, en bordure nord-est
         buildHouse(6, px - 9, vy)            // LA GUILDE, en bordure nord-ouest
+        buildHouse(8, px - 4, vy + 5)        // LA TAVERNE, sous la chaumiere
+
+        // Le tavernier + ses 6 clients, dans la salle
+        run {
+            val rx0 = 1 + ((8 - 1) % 3) * 13
+            val ry0 = hy0 + 1 + ((8 - 1) / 3) * 9
+            tavernCells.clear()
+            val spots = listOf(
+                Pair(6, 1),                              // le tavernier, derriere le comptoir
+                Pair(1, 3), Pair(3, 5), Pair(9, 3),
+                Pair(10, 5), Pair(2, 5), Pair(8, 2)      // les 6 clients attables
+            )
+            for ((k, sp) in spots.withIndex()) {
+                val c = idx(rx0 + sp.first, ry0 + sp.second)
+                if (inside(rx0 + sp.first, ry0 + sp.second) && grid[c] == FLOOR) {
+                    tavernCells.add(Pair(c, k + 1))
+                }
+            }
+        }
 
         // Les 10 heros de la guilde, repartis dans le grand hall
         run {
@@ -670,6 +691,7 @@ class World(
             5 -> 31       // le punk club : plancher clair (contraste avec les punks !)
             6 -> 27       // LA GUILDE : carrelage clair en diagonale, noble (SOL_CLAIR_15)
             7 -> 13       // LE GRAND ARBRE : terre claire, touffes d'herbe (SOL_CLAIR_01)
+            8 -> 22       // LA TAVERNE : plancher de bois blond, chaleureux (SOL_CLAIR_10)
                           // (hfloor6 etait une texture de MUR a colombages - bug corrige)
             else -> 22    // chaumiere : planches de bois blond (SOL_CLAIR_10)
         }
@@ -682,6 +704,12 @@ class World(
         val exitCell = idx(rx0 + 6, ry0 + 7)
         houseExit[exitCell] = n
         houseEntry[n] = exitCell
+
+        // Un DISTRIBUTEUR 8.6 bavard, au fond de la taverne
+        if (n == 8) {
+            val dc = idx(rx0 + 8, ry0)
+            if (grid[dc] == FLOOR) { vendors[dc] = 4; grid[dc] = WALL }
+        }
 
         // Les objets fixes, poses sur les murs / le sol de la piece
         when (n) {
@@ -701,6 +729,10 @@ class World(
                 fixtures[idx(rx0 + 6, ry0 + 4)] = 5
             }
             7 -> fixtures[idx(rx0 + 6, ry0 + 3)] = 4   // l'antre de l'arbre : le tapis
+            8 -> {                                  // taverne : cheminee, fenetres
+                fixtures[idx(rx0 + 2, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 9, ry0 - 1)] = 1
+            }
             6 -> {                                  // guilde : cheminee, fenetres, grand tapis
                 fixtures[idx(rx0 + 2, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 - 1)] = 2
@@ -840,6 +872,13 @@ class World(
                 Triple(11, 2, 61), Triple(10, 3, 2),
                 Triple(0, 5, 5), Triple(1, 5, 5), Triple(2, 5, 2),
                 Triple(9, 5, 5), Triple(10, 5, 2)
+            )
+            // LA TAVERNE : comptoir, tables, tonneaux, ratelier, buffet
+            8 -> listOf(
+                Triple(4, 0, 96), Triple(5, 0, 99), Triple(0, 0, 98), Triple(1, 0, 97),
+                Triple(10, 0, 100), Triple(11, 0, 99),
+                Triple(2, 3, 91), Triple(9, 3, 91),
+                Triple(0, 5, 92), Triple(4, 5, 92)
             )
             // LE GRAND ARBRE : un antre druidique, grimoires et cristaux
             7 -> listOf(

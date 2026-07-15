@@ -92,6 +92,8 @@ class World(
     val punkSpawns = ArrayList<Pair<Int, Int>>()
     var pierreCell = -1
     var frankiCell = -1
+    /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
+    var slipCell = -1
     val petSpawns = ArrayList<Pair<Int, Int>>()
     var islandPortal = -1
     var islandVisited = false
@@ -515,6 +517,26 @@ class World(
                     else if (frankiCell < 0 && kotlin.math.abs(cx(i) - cx(pierreCell)) >= 2) {
                         frankiCell = i
                         break@outer
+                    }
+                }
+            }
+        }
+
+        // Le slip flotte dans la mer, au large de Pierre (2-3 cases dans l'eau)
+        if (pierreCell >= 0) {
+            val bx = cx(pierreCell)
+            outer2@ for (y in cy(pierreCell) + 2..iy0 + 33) {
+                for (dx in intArrayOf(0, -1, 1, -2, 2)) {
+                    val x = bx + dx
+                    if (!inside(x, y)) continue
+                    val t = terrain[idx(x, y)]
+                    if (t == TER_WATER || t == TER_SHALLOW) {
+                        // on s'avance d'une case de plus vers le large si possible
+                        val deeper = if (inside(x, y + 1) &&
+                            (terrain[idx(x, y + 1)] == TER_WATER || terrain[idx(x, y + 1)] == TER_SHALLOW)
+                        ) idx(x, y + 1) else idx(x, y)
+                        slipCell = deeper
+                        break@outer2
                     }
                 }
             }

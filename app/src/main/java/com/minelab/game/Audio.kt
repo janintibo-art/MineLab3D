@@ -149,6 +149,8 @@ class Audio(private val ctx: Context) {
             "simon2" -> blip(659f, 0.28f)
             "simon3" -> blip(784f, 0.28f)
             "error" -> square(160f, 0.18f)
+            "splash" -> noise(0.22f, 0.32f, true)
+            "bite" -> arp(floatArrayOf(988f, 1319f), 0.07f)
             else -> blip(800f, 0.06f)
         }
         val bytes = pcm.size * 2

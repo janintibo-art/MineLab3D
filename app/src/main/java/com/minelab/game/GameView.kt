@@ -147,6 +147,16 @@ class GameView(context: Context) : View(context) {
     private var rodOwned = false
     private var fishCasts = 0
     private var slipOwned = false
+    // --- vrai mode peche ---
+    private var fishing = false          // la ligne est a l'eau
+    private var fishBobX = 0f            // flotteur, coordonnees monde (centre de case + derive)
+    private var fishBobY = 0f
+    private var fishWaitT = 0f           // compte a rebours avant la touche
+    private var fishBiteT = 0f           // > 0 = CA MORD, fenetre de ferrage
+    private var fishSplashT = 0f         // petit plouf a l'impact du lancer
+    private var fishHx = 0               // position du heros au lancer (bouger = remonter la ligne)
+    private var fishHy = 0
+    private var fishCount = 0            // poissons frais dans la besace
     private var ticketOwned = false
     private var tripT = 0f
     private val vendorsUsed = HashSet<Int>()
@@ -437,6 +447,8 @@ class GameView(context: Context) : View(context) {
     private val mQuit = RectF()
     private val invJoyRect = RectF()
     private val invEnergyRect = RectF()
+    private val invFishRect = RectF()
+    private val linePath = Path()
     private val invShroomRect = RectF()
 
     private var downX = 0f
@@ -554,6 +566,7 @@ class GameView(context: Context) : View(context) {
         sprayOwned = false; sprayNext = 1; vendorsUsed.clear()
         shroomCount = 0; spraysDone = 0; tripT = 0f
         metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
+        fishing = false; fishBiteT = 0f; fishCount = 0
         mobs.clear()
         miniPlate = -1
         simonState = 0; simonInput = 0
@@ -648,6 +661,7 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("metP", metPierre)
         e.putBoolean("rod", rodOwned)
         e.putInt("casts", fishCasts)
+        e.putInt("fish", fishCount)
         e.putBoolean("slip", slipOwned)
         e.putBoolean("ticket", ticketOwned)
         e.putBoolean("shroomT", world.shroomTaken)
@@ -735,6 +749,7 @@ class GameView(context: Context) : View(context) {
         metPierre = prefs.getBoolean("metP", false)
         rodOwned = prefs.getBoolean("rod", false)
         fishCasts = prefs.getInt("casts", 0)
+        fishCount = prefs.getInt("fish", 0)
         slipOwned = prefs.getBoolean("slip", false)
         ticketOwned = prefs.getBoolean("ticket", false)
         world.shroomTaken = prefs.getBoolean("shroomT", false)
@@ -847,6 +862,72 @@ class GameView(context: Context) : View(context) {
 
     // ============================================================ LOGIQUE
 
+    // ---------------------------------------------------------- vrai mode peche
+
+    /** Lance la ligne : le flotteur tombe sur la case visee, on attend la touche. */
+    private fun startFishing(gx: Int, gy: Int) {
+        fishing = true
+        fishHx = hx; fishHy = hy
+        val r = Random(System.nanoTime())
+        fishBobX = gx + 0.3f + r.nextFloat() * 0.4f
+        fishBobY = gy + 0.3f + r.nextFloat() * 0.4f
+        fishWaitT = 1.6f + r.nextFloat() * 3.4f
+        fishBiteT = 0f
+        fishSplashT = 0.6f
+        fishCasts++
+        audio.play("splash")
+        showMsg("Plouf ! La ligne est a l'eau... touchez l'ecran des que CA MORD !")
+    }
+
+    /** Remonte la ligne, avec ou sans commentaire. */
+    private fun stopFishing(msg: String?) {
+        fishing = false
+        fishBiteT = 0f
+        if (msg != null) showMsg(msg)
+    }
+
+    /** Ferrage reussi : qu'y a-t-il au bout de l'hamecon ? */
+    private fun catchFish() {
+        fishing = false
+        fishBiteT = 0f
+        val bGx = fishBobX.toInt()
+        val bGy = fishBobY.toInt()
+        // Le slip de Pierre flotte sur slipCell : ferrer a moins d'une case = prise garantie
+        val sc = world.slipCell
+        if (sc >= 0 && metPierre && !slipOwned && !ticketOwned &&
+            abs(bGx - world.cx(sc)) <= 1 && abs(bGy - world.cy(sc)) <= 1
+        ) {
+            slipOwned = true
+            audio.play("win")
+            showMsg("ENORME PRISE !!! ... LE SLIP A PIERRE ! Rapportez-le-lui !")
+            saveGame()
+            return
+        }
+        val r = Random(System.nanoTime())
+        val roll = r.nextFloat()
+        when {
+            roll < 0.62f -> {
+                fishCount++
+                audio.play("pickup")
+                showMsg(
+                    listOf(
+                        "Un poisson frais ! (+1, inventaire pour le manger)",
+                        "Une belle perche ! (+1 poisson dans la besace)",
+                        "Un poisson bien dodu ! (+1, ca se mange !)"
+                    )[r.nextInt(3)]
+                )
+            }
+            roll < 0.78f -> { audio.play("error"); showMsg("Une vieille botte... Relancez !") }
+            roll < 0.90f -> { audio.play("error"); showMsg("Des algues puantes. Beurk. Relancez !") }
+            else -> {
+                fishCount += 2
+                audio.play("chest")
+                showMsg("DOUBLE PRISE ! Deux poissons d'un coup ! (+2)")
+            }
+        }
+        saveGame()
+    }
+
     private fun update(dt: Float) {
         time += dt
         audio.setZone(currentZone())
@@ -862,6 +943,27 @@ class GameView(context: Context) : View(context) {
         sudokuShake = (sudokuShake - dt).coerceAtLeast(0f)
         attackAnim = (attackAnim - dt * 3f).coerceAtLeast(0f)
         if (state != PLAYING) return
+
+        // La peche : attente, touche ("CA MORD"), fenetre de ferrage
+        if (fishing) {
+            fishSplashT = (fishSplashT - dt).coerceAtLeast(0f)
+            if (hx != fishHx || hy != fishHy) {
+                stopFishing("Vous remontez la ligne en marchant.")
+            } else if (fishBiteT > 0f) {
+                fishBiteT -= dt
+                if (fishBiteT <= 0f) {
+                    fishBiteT = 0f
+                    fishWaitT = 1.4f + npcRnd.nextFloat() * 3f
+                    showMsg("Trop lent, ca ne mord plus... la ligne reste a l'eau.")
+                }
+            } else {
+                fishWaitT -= dt
+                if (fishWaitT <= 0f) {
+                    fishBiteT = 0.85f
+                    audio.play("bite")
+                }
+            }
+        }
 
         if (following) {
             camX += (fx - camX) * min(1f, dt * 8f)
@@ -1387,7 +1489,7 @@ class GameView(context: Context) : View(context) {
                         "Malheur ! Mon slip porte-bonheur est tombe a la mer ! Franki a une canne..."
                     }
                     !rodOwned -> "Va voir Franki pour la canne, je t'en prie !"
-                    else -> "Mon slip est quelque part dans la baie... peche-le !"
+                    else -> "Regarde ! Il FLOTTE la-bas au large ! Lance ta ligne dessus !"
                 }
             } else {
                 dialogueName = "Franki"
@@ -1396,9 +1498,9 @@ class GameView(context: Context) : View(context) {
                         rodOwned = true
                         audio.play("pickup")
                         saveGame()
-                        "Tiens ma canne ! Touche la mer pour lancer. Ramene-lui son slip !"
+                        "Tiens ma canne ! Touche la mer pour lancer, ferre quand CA MORD. Vise le slip qui flotte !"
                     }
-                    rodOwned && !ticketOwned -> "Ca mord par ici, insiste !"
+                    rodOwned && !ticketOwned -> "Touche la mer pour lancer, et FERRE des que ca mord ! Le slip flotte au large de Pierre."
                     ticketOwned -> "Ha ! Le slip retrouve, ca se fete au club !"
                     else -> "Pierre a ENCORE perdu quelque chose. Va le voir."
                 }
@@ -1915,26 +2017,11 @@ class GameView(context: Context) : View(context) {
             clearPendings(); pendingTorch = i
             return
         }
-        // Pecher avec la canne de Franki
+        // Pecher avec la canne de Franki (vrai mode peche, garde pour toujours)
         val ter2 = if (world.inside(gx, gy)) world.terrain[i] else World.TER_NONE
-        if (rodOwned && !slipOwned && !ticketOwned &&
-            (ter2 == World.TER_WATER || ter2 == World.TER_SHALLOW)
-        ) {
-            if (abs(gx - hx) <= 2 && abs(gy - hy) <= 2) {
-                fishCasts++
-                audio.play("flag")
-                showMsg(
-                    when (fishCasts) {
-                        1 -> "Plouf... Ca mord ! ... Une vieille botte. Reessayez !"
-                        2 -> "Une touche !! ... Des algues puantes. Encore un coup !"
-                        else -> {
-                            slipOwned = true
-                            audio.play("win")
-                            "ENORME PRISE !!! ... LE SLIP A PIERRE ! Rapportez-le-lui !"
-                        }
-                    }
-                )
-                saveGame()
+        if (rodOwned && (ter2 == World.TER_WATER || ter2 == World.TER_SHALLOW)) {
+            if (abs(gx - hx) <= 3 && abs(gy - hy) <= 3) {
+                startFishing(gx, gy)
             } else {
                 showMsg("Approchez-vous du bord pour lancer la ligne.")
             }
@@ -2382,9 +2469,111 @@ class GameView(context: Context) : View(context) {
         drawInteriorMask(canvas, w)
     }
 
+
+    /** Le slip porte-bonheur de Pierre flotte sur la houle, au large de la plage. */
+    private fun drawFloatingSlip(canvas: Canvas, w: Float) {
+        val sc = world.slipCell
+        if (sc < 0 || !metPierre || slipOwned || ticketOwned) return
+        val bx = world.cx(sc) + 0.5f
+        val by = world.cy(sc) + 0.5f + sin(time * 1.25f) * 0.07f
+        val sxp = sx(bx, w)
+        val syp = sy(by)
+        if (syp < boardTop - tile || syp > boardBottom + tile) return
+        // rides concentriques autour du slip
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.035f
+        val ph = (time * 0.55f) % 1f
+        for (k in 0..1) {
+            val pk = (ph + k * 0.5f) % 1f
+            paint.color = Color.argb(((1f - pk) * 90).toInt(), 235, 248, 255)
+            canvas.drawOval(
+                sxp - tile * (0.35f + pk * 0.5f), syp + tile * 0.18f - tile * (0.12f + pk * 0.17f),
+                sxp + tile * (0.35f + pk * 0.5f), syp + tile * 0.18f + tile * (0.12f + pk * 0.17f), paint
+            )
+        }
+        paint.style = Paint.Style.FILL
+        // le slip, qui tangue doucement
+        canvas.save()
+        canvas.rotate(sin(time * 0.9f) * 8f, sxp, syp)
+        drawSprite(canvas, sSlip, sxp, syp, tile * 0.95f, 242)
+        canvas.restore()
+        // reflet clair sous le tissu
+        paint.color = Color.argb(40, 255, 255, 255)
+        canvas.drawOval(sxp - tile * 0.3f, syp + tile * 0.3f, sxp + tile * 0.3f, syp + tile * 0.42f, paint)
+    }
+
+    /** La ligne, le flotteur et le "CA MORD !" pendant la peche. */
+    private fun drawFishing(canvas: Canvas, w: Float) {
+        if (!fishing) return
+        val hsx = sx(fx, w)
+        val hsy = sy(fy) - tile * 0.95f
+        val bite = fishBiteT > 0f
+        val dip = if (bite) tile * (0.14f + 0.06f * sin(time * 22f)) else tile * 0.03f * sin(time * 2.2f)
+        val bxp = sx(fishBobX, w)
+        val byp = sy(fishBobY) + dip
+        // plouf du lancer : anneau qui s'etend
+        if (fishSplashT > 0f) {
+            val pr = (0.6f - fishSplashT) / 0.6f
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.05f
+            paint.color = Color.argb(((1f - pr) * 170).toInt(), 240, 250, 255)
+            canvas.drawOval(
+                bxp - tile * pr * 0.7f, byp - tile * pr * 0.28f,
+                bxp + tile * pr * 0.7f, byp + tile * pr * 0.28f, paint
+            )
+        }
+        // la ligne, du bout de la canne au flotteur, avec un peu de mou
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.028f
+        paint.color = Color.argb(200, 245, 248, 252)
+        linePath.reset()
+        linePath.moveTo(hsx, hsy)
+        val sag = if (bite) tile * 0.1f else tile * (0.4f + 0.05f * sin(time * 1.7f))
+        linePath.quadTo((hsx + bxp) / 2f, (hsy + byp) / 2f + sag, bxp, byp - tile * 0.1f)
+        canvas.drawPath(linePath, paint)
+        // rides autour du flotteur
+        val ph = (time * 0.7f) % 1f
+        paint.color = Color.argb(((1f - ph) * 110).toInt(), 235, 248, 255)
+        canvas.drawOval(
+            bxp - tile * (0.16f + ph * 0.3f), byp - tile * (0.06f + ph * 0.11f),
+            bxp + tile * (0.16f + ph * 0.3f), byp + tile * (0.06f + ph * 0.11f), paint
+        )
+        // le flotteur rouge et blanc
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(248, 246, 240)
+        canvas.drawCircle(bxp, byp, tile * 0.085f, paint)
+        paint.color = Color.rgb(225, 45, 40)
+        canvas.drawArc(
+            bxp - tile * 0.085f, byp - tile * 0.085f,
+            bxp + tile * 0.085f, byp + tile * 0.085f, 180f, 180f, true, paint
+        )
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.02f
+        paint.color = Color.argb(160, 40, 30, 25)
+        canvas.drawCircle(bxp, byp, tile * 0.085f, paint)
+        paint.style = Paint.Style.FILL
+        // CA MORD !
+        if (bite) {
+            val py2 = byp - tile * (0.55f + 0.07f * sin(time * 14f))
+            paint.textAlign = Paint.Align.CENTER
+            paint.isFakeBoldText = true
+            paint.textSize = tile * 0.34f
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.06f
+            paint.color = Color.rgb(60, 30, 8)
+            canvas.drawText("CA MORD !", bxp, py2, paint)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(255, 210, 60)
+            canvas.drawText("CA MORD !", bxp, py2, paint)
+            paint.isFakeBoldText = false
+        }
+    }
+
     /** Mouettes qui planent au-dessus de la mer, papillons sur la place. */
     private fun drawIslandLife(canvas: Canvas, w: Float) {
         if (camY < world.iy0 - 6) return
+        drawFloatingSlip(canvas, w)
+        drawFishing(canvas, w)
         // Les mouettes
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = tile * 0.06f
@@ -3488,7 +3677,7 @@ class GameView(context: Context) : View(context) {
             world.isInterior(hx, hy) && world.interiorOf(hx, hy) == 5 -> "LE CONCERT ! Le slip a Pierre resonne !"
             world.isInterior(hx, hy) -> "Vous etes a l'interieur. La porte du bas pour sortir."
             metPierre && !rodOwned -> "Quete : demander la canne a Franki (plage sud-ouest)."
-            rodOwned && !slipOwned && !ticketOwned -> "Quete : pecher le SLIP dans la mer (touchez l'eau) !"
+            rodOwned && !slipOwned && !ticketOwned -> "Quete : pecher le SLIP qui flotte au large (touchez l'eau) !"
             slipOwned -> "Quete : rapporter le slip a Pierre !"
             world.isIsland(hx, hy) && world.inVillage(hx, hy) -> "Le village : la chaumiere et la forge sont ouvertes !"
             world.isIsland(hx, hy) -> "L'ile ! Explorez la plage, les bois et la place au sud."
@@ -3622,15 +3811,16 @@ class GameView(context: Context) : View(context) {
             arrayOf(sRod, "Canne de Franki", if (rodOwned) "touchez la mer pour pecher" else "0", Color.rgb(120, 190, 240)),
             arrayOf(sSlip, "Slip de Pierre", if (slipOwned) "rapportez-le a Pierre !" else "0", Color.rgb(240, 230, 210)),
             arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
+            arrayOf(null, "Poisson frais", if (fishCount > 0) "$fishCount - touchez pour manger" else "0", Color.rgb(110, 220, 190)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
             arrayOf(null, "Mines desamorcees", "$disarmed", Color.rgb(90, 200, 130)),
             arrayOf(null, "Points de vie", if (godMode) "illimites" else "$hp / 100", Color.rgb(215, 90, 85)),
             arrayOf(null, "Joystick", joyLabel, Color.rgb(120, 190, 240))
         )
-        var y = h * 0.16f
+        var y = h * 0.135f
         val bw = w * 0.84f
         val bx = (w - bw) / 2f
-        val rh = h * 0.062f
+        val rh = h * 0.049f
         for (r in rows) {
             val icon = r[0] as Bitmap?
             val label = r[1] as String
@@ -3639,6 +3829,7 @@ class GameView(context: Context) : View(context) {
             tmpRect.set(bx, y, bx + bw, y + rh)
             if (label == "Joystick") invJoyRect.set(tmpRect)
             if (label == "Canette d'energie") invEnergyRect.set(tmpRect)
+            if (label == "Poisson frais") invFishRect.set(tmpRect)
             if (label == "Champignon de Kaos") invShroomRect.set(tmpRect)
             val active = (label == "Joystick" && joyOn)
             drawFrame(
@@ -3664,12 +3855,12 @@ class GameView(context: Context) : View(context) {
             paint.textSize = h * 0.0165f
             canvas.drawText(value, bx + bw - h * 0.02f, icy + h * 0.007f, paint)
             paint.isFakeBoldText = false
-            y += rh + h * 0.012f
+            y += rh + h * 0.0075f
         }
         paint.textAlign = Paint.Align.CENTER
         paint.color = Color.rgb(150, 160, 185)
         paint.textSize = h * 0.018f
-        canvas.drawText("Touchez ailleurs pour fermer", w / 2f, h * 0.93f, paint)
+        canvas.drawText("Touchez ailleurs pour fermer", w / 2f, h * 0.965f, paint)
     }
 
     private fun drawHelp(canvas: Canvas, w: Float, h: Float) {
@@ -4232,6 +4423,12 @@ class GameView(context: Context) : View(context) {
                 hp = (hp + 30).coerceAtMost(100)
                 saveGame()
                 showMsg("Glouglou ! +30 PV")
+            } else if (invFishRect.contains(e.x, e.y) && fishCount > 0) {
+                fishCount--
+                hp = (hp + 25).coerceAtMost(100)
+                audio.play("pickup")
+                saveGame()
+                showMsg("Miam, grille sur un feu de plage ! +25 PV")
             } else if (invShroomRect.contains(e.x, e.y) && shroomCount > 0) {
                 shroomCount--
                 tripT = 9f
@@ -4315,6 +4512,12 @@ class GameView(context: Context) : View(context) {
         if (btnZoomIn.contains(e.x, e.y)) { tile = (tile * 1.22f).coerceAtMost(240f); clampCam(); return true }
         if (btnCenter.contains(e.x, e.y)) { following = true; return true }
         if (btnMenu.contains(e.x, e.y)) { showMenu = true; return true }
+
+        // Pendant la peche : toucher le plateau = ferrer (ou remonter la ligne)
+        if (fishing && e.y in boardTop..boardBottom) {
+            if (fishBiteT > 0f) catchFish() else stopFishing("Vous remontez la ligne. Rien au bout.")
+            return true
+        }
 
         if (e.y in boardTop..boardBottom) {
             val gx = floor(camX + (e.x - width / 2f) / tile).toInt()

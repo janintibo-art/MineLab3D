@@ -177,6 +177,23 @@ class GameView(context: Context) : View(context) {
     private val spellKnown = BooleanArray(4)         // air, eau, terre, feu
     private var spellDemo = -1
     private var spellDemoT = 0f
+    // --- LANCER de sorts en combat ---
+    private val btnSpell = RectF()
+    private var spellPicker = false                  // le selecteur d'element est ouvert
+    private val spellPickRects = arrayOfNulls<RectF>(4)
+    private var spellSel = -1                         // dernier element choisi (raccourci)
+    private var spellCd = 0f
+    private val ELEM_NAMES = arrayOf("AIR", "EAU", "TERRE", "FEU")
+    private val ELEM_COLORS = intArrayOf(
+        Color.rgb(120, 230, 200), Color.rgb(80, 170, 245),
+        Color.rgb(210, 170, 70), Color.rgb(240, 120, 40)
+    )
+    private val ELEM_DMG = intArrayOf(35, 45, 60, 80)   // air rapide .. feu devastateur
+    private class Bolt(
+        var x: Float, var y: Float, val dx: Float, val dy: Float,
+        val elem: Int, val dir: Int, var life: Float, var t: Float = 0f, var hit: Boolean = false
+    )
+    private val bolts = ArrayList<Bolt>()
     private val sSpell = Array(4) { Array(4) { arrayOfNulls<Bitmap>(5) } }
     private val sTav: Array<Array<Bitmap>> = Array(7) { i ->
         val id = i + 1
@@ -633,6 +650,7 @@ class GameView(context: Context) : View(context) {
         vmemRestore = false
         try { prefs.edit().remove("vmem").apply() } catch (t: Throwable) { }
         spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
+        spellSel = -1; spellCd = 0f; spellPicker = false; bolts.clear()
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
         petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
@@ -917,6 +935,7 @@ class GameView(context: Context) : View(context) {
         btnZoomIn.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnSword.set(x - bh, y0, x, y0 + bh); x -= bh + gap
+        btnSpell.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnReset.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
 
@@ -1055,6 +1074,8 @@ class GameView(context: Context) : View(context) {
             spellDemoT -= dt
             if (spellDemoT <= 0f) spellDemo = -1
         }
+        spellCd = (spellCd - dt).coerceAtLeast(0f)
+        updateBolts(dt)
         // La peche : attente, touche ("CA MORD"), fenetre de ferrage
         if (fishing) {
             fishSplashT = (fishSplashT - dt).coerceAtLeast(0f)
@@ -1305,6 +1326,77 @@ class GameView(context: Context) : View(context) {
                 showMsg("Les deux monstres sont vaincus ! La porte se deverrouille.")
                 saveGame()
             }
+        }
+    }
+
+    /** A-t-on au moins un sort appris ? */
+    private fun anySpell() = spellKnown.any { it }
+
+    /** Touche du bouton SORT : ouvre le selecteur, ou relance le dernier element. */
+    private fun onSpellButton() {
+        if (!anySpell()) { showMsg("Le mage de l'arbre ne t'a encore rien appris !"); return }
+        val known = (0..3).filter { spellKnown[it] }
+        if (known.size == 1) { castSpell(known[0]); return }
+        if (spellSel in known && spellCd <= 0f) { castSpell(spellSel); return }
+        spellPicker = !spellPicker
+    }
+
+    /** Lance un sort de l'element e dans la direction du regard. */
+    private fun castSpell(e: Int) {
+        if (!spellKnown[e]) return
+        spellPicker = false
+        if (spellCd > 0f) return
+        spellSel = e
+        spellCd = when (e) { 0 -> 0.5f; 1 -> 0.65f; 2 -> 0.9f; else -> 1.1f }
+        val d = heroDir.coerceIn(0, 3)
+        val (dx, dy) = when (d) { 0 -> 0f to 1f; 1 -> 0f to -1f; 2 -> -1f to 0f; else -> 1f to 0f }
+        val speed = when (e) { 0 -> 11f; 1 -> 9f; 2 -> 7f; else -> 8f }
+        val range = when (e) { 0 -> 6.5f; 1 -> 6f; 2 -> 4.5f; else -> 7f }
+        bolts.add(Bolt(fx + dx * 0.5f, fy + dy * 0.5f, dx * speed, dy * speed, e, d, range / speed))
+        audio.play(if (e == 3) "win" else "flag")
+        spellDemo = e; spellDemoT = 0.45f   // petite volute a la main du heros
+    }
+
+    /** Fait avancer les projectiles, gere l'impact elementaire sur les mobs. */
+    private fun updateBolts(dt: Float) {
+        if (bolts.isEmpty()) return
+        val it = bolts.iterator()
+        while (it.hasNext()) {
+            val b = it.next()
+            b.t += dt
+            if (b.hit) { if (b.t > 0.28f) it.remove(); continue }
+            val nx = b.x + b.dx * dt
+            val ny = b.y + b.dy * dt
+            // Mur : le sort s'ecrase (le feu laisse une marque de brulure via hitT visuel)
+            if (!world.isFloor(nx.toInt(), ny.toInt())) {
+                b.hit = true; b.t = 0f; b.life = 0f
+                if (b.elem == 3) audio.play("error")
+                continue
+            }
+            b.x = nx; b.y = ny
+            b.life -= dt
+            // Touche un monstre ?
+            var touched = false
+            for (m in mobs) {
+                if (m.hp <= 0) continue
+                val rad = if (m.boss) 1.5f else 1.1f
+                if (hypot(m.x - b.x, m.y - b.y) <= rad) {
+                    val base = ELEM_DMG[b.elem]
+                    // Bonus elementaire : le feu ravage, la terre etourdit, l'eau ralentit
+                    m.hp -= base
+                    m.hitT = 0.3f
+                    when (b.elem) {
+                        2 -> m.stepT = 0.8f                       // terre : etourdi
+                        1 -> m.stepT = m.stepT.coerceAtLeast(0.5f) // eau : ralenti
+                    }
+                    audio.play("hit")
+                    if (m.hp <= 0) showMsg("Monstre pulverise par ${ELEM_NAMES[b.elem]} !")
+                    touched = true
+                    if (b.elem != 3) break   // le feu traverse (aoe), les autres s'arretent
+                }
+            }
+            if (touched && b.elem != 3) { b.hit = true; b.t = 0f }
+            else if (b.life <= 0f) { b.hit = true; b.t = 0f }
         }
     }
 
@@ -3142,6 +3234,7 @@ class GameView(context: Context) : View(context) {
             }
         }
         drawMobs(canvas, w)
+        drawBolts(canvas, w)
         drawWalkers(canvas, w)
         drawHero(canvas, w)
         drawIslandLife(canvas, w)
@@ -4033,6 +4126,67 @@ class GameView(context: Context) : View(context) {
         drawSprite(canvas, sLighter, rect.centerX(), rect.centerY() + bob, tile * 0.72f)
     }
 
+    /** Le bouton SORT et, s'il est ouvert, le selecteur d'element. */
+    private fun drawSpellButton(canvas: Canvas) {
+        val e = if (spellSel in 0..3 && spellKnown[spellSel]) spellSel
+                else (0..3).firstOrNull { spellKnown[it] } ?: 0
+        paint.style = Paint.Style.FILL
+        paint.color = if (spellCd > 0f) Color.rgb(50, 55, 70) else ELEM_COLORS[e]
+        canvas.drawRoundRect(btnSpell, btnSpell.height() * 0.28f, btnSpell.height() * 0.28f, paint)
+        // petite etincelle centrale
+        paint.color = Color.argb(220, 255, 255, 255)
+        canvas.drawCircle(btnSpell.centerX(), btnSpell.centerY(), btnSpell.height() * 0.16f, paint)
+        paint.color = ELEM_COLORS[e]
+        canvas.drawCircle(btnSpell.centerX(), btnSpell.centerY(), btnSpell.height() * 0.09f, paint)
+        // jauge de recharge
+        if (spellCd > 0f) {
+            paint.color = Color.argb(120, 0, 0, 0)
+            val cdMax = when (e) { 0 -> 0.5f; 1 -> 0.65f; 2 -> 0.9f; else -> 1.1f }
+            canvas.drawRect(
+                btnSpell.left, btnSpell.top,
+                btnSpell.right, btnSpell.top + btnSpell.height() * (spellCd / cdMax), paint
+            )
+        }
+
+        spellPickRects.fill(null)
+        if (!spellPicker) return
+        // Le selecteur : les elements appris, empiles au-dessus du bouton
+        val known = (0..3).filter { spellKnown[it] }
+        val sz = btnSpell.height() * 1.05f
+        val gap = btnSpell.height() * 0.2f
+        var yb = btnSpell.top - gap - sz
+        for (el in known.reversed()) {
+            val r = RectF(btnSpell.centerX() - sz / 2f, yb, btnSpell.centerX() + sz / 2f, yb + sz)
+            paint.style = Paint.Style.FILL
+            paint.color = ELEM_COLORS[el]
+            canvas.drawRoundRect(r, sz * 0.22f, sz * 0.22f, paint)
+            paint.color = Color.argb(70, 0, 0, 0)
+            canvas.drawRoundRect(r, sz * 0.22f, sz * 0.22f, paint)
+            drawSprite(canvas, spellBmp(el, 0, 3), r.centerX(), r.centerY(), sz * 0.92f)
+            paint.color = Color.WHITE
+            paint.textAlign = Paint.Align.CENTER
+            paint.isFakeBoldText = true
+            paint.textSize = sz * 0.2f
+            canvas.drawText(ELEM_NAMES[el], r.centerX(), r.bottom - sz * 0.06f, paint)
+            paint.isFakeBoldText = false
+            spellPickRects[el] = r
+            yb -= sz + gap * 0.6f
+        }
+    }
+
+    /** Les projectiles de sort : la volute animee file vers sa cible. */
+    private fun drawBolts(canvas: Canvas, w: Float) {
+        for (b in bolts) {
+            val cxx = sx(b.x, w)
+            val cyy = sy(b.y) - tile * 0.35f
+            val f = if (b.hit) 4 else (2 + (sin(b.t * 30f) * 1.4f).toInt()).coerceIn(1, 4)
+            val bmp = spellBmp(b.elem, b.dir, f)
+            val sz = if (b.hit) tile * 2.2f else tile * (1.5f + 0.2f * sin(b.t * 18f))
+            val alpha = if (b.hit) (b.t.let { (1f - it / 0.28f) * 255 }).toInt().coerceIn(0, 255) else 255
+            drawSprite(canvas, bmp, cxx, cyy, sz, alpha)
+        }
+    }
+
     private fun drawMobs(canvas: Canvas, w: Float) {
         for (m in mobs) {
             if (m.hp <= 0) continue
@@ -4455,6 +4609,7 @@ class GameView(context: Context) : View(context) {
             canvas.drawRoundRect(btnSword, btnSword.height() * 0.28f, btnSword.height() * 0.28f, paint)
             drawSprite(canvas, sSwordV, btnSword.centerX(), btnSword.centerY(), btnSword.height() * 0.82f)
         }
+        if (anySpell()) drawSpellButton(canvas)
         if (inSokobanRoom()) drawBtn(canvas, btnReset, "↺", false)
         drawBtn(canvas, btnZoomOut, "−", false)
         drawBtn(canvas, btnZoomIn, "+", false)
@@ -5249,6 +5404,16 @@ class GameView(context: Context) : View(context) {
             showMsg(if (flagMode) "Mode drapeau : touchez une dalle pour la marquer." else "Mode normal.")
             return true
         }
+        // Le selecteur d'element ouvert : capte le toucher en priorite
+        if (spellPicker) {
+            for (el in 0..3) {
+                val r = spellPickRects[el]
+                if (r != null && r.contains(e.x, e.y)) { castSpell(el); return true }
+            }
+            spellPicker = false
+            if (btnSpell.contains(e.x, e.y)) return true
+        }
+        if (anySpell() && btnSpell.contains(e.x, e.y)) { onSpellButton(); return true }
         if (swordOwned && btnSword.contains(e.x, e.y)) { doAttack(); return true }
         if (inSokobanRoom() && btnReset.contains(e.x, e.y)) { resetCurrentSokoban(); return true }
         if (btnZoomOut.contains(e.x, e.y)) { tile = (tile * 0.82f).coerceAtLeast(34f); clampCam(); return true }

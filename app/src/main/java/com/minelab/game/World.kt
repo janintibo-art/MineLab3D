@@ -439,6 +439,7 @@ class World(
         placeTwoHouses()
         placeVillagers()
         placeSecretEntrance()
+        placeGiantTree(cx2.toInt())
         placeDecor()
 
         // La barque, sur un haut-fond au sud du village, contre la plage
@@ -615,6 +616,26 @@ class World(
         }
     }
 
+    /** LE GRAND ARBRE : batiment 7, plante au coeur de l'ile lointaine. */
+    private fun placeGiantTree(cx2i: Int) {
+        val top = iy0
+        for (y in top + 41..top + 49) {
+            for (x in cx2i - 5..cx2i + 6) {
+                if (!inside(x - 1, y - 1) || !inside(x + 1, y + 1)) continue
+                var ok = true
+                for (dy in -1..0) for (dx in -1..1) {
+                    val c = idx(x + dx, y + dy)
+                    if (terrain[c] != TER_GRASS || grid[c] != FLOOR) ok = false
+                }
+                val mat = idx(x, y + 1)
+                if (grid[mat] != FLOOR || terrain[mat] == TER_SHALLOW || terrain[mat] == TER_WATER) ok = false
+                if (!ok) continue
+                buildHouse(7, x, y)
+                return
+            }
+        }
+    }
+
     private fun buildHouse(n: Int, x: Int, y: Int) {
         if (!inside(x - 1, y - 1) || !inside(x + 1, y + 1)) return
         // Empreinte au sol : 3 x 2 cases infranchissables
@@ -645,6 +666,7 @@ class World(
             4 -> 32       // cabane d'alchimiste : carreaux hexagonaux, tres alchimique (SOL_CLAIR_20)
             5 -> 31       // le punk club : plancher clair (contraste avec les punks !)
             6 -> 27       // LA GUILDE : carrelage clair en diagonale, noble (SOL_CLAIR_15)
+            7 -> 13       // LE GRAND ARBRE : terre claire, touffes d'herbe (SOL_CLAIR_01)
                           // (hfloor6 etait une texture de MUR a colombages - bug corrige)
             else -> 22    // chaumiere : planches de bois blond (SOL_CLAIR_10)
         }
@@ -675,6 +697,7 @@ class World(
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 + 4)] = 5
             }
+            7 -> fixtures[idx(rx0 + 6, ry0 + 3)] = 4   // l'antre de l'arbre : le tapis
             6 -> {                                  // guilde : cheminee, fenetres, grand tapis
                 fixtures[idx(rx0 + 2, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 - 1)] = 2
@@ -814,6 +837,11 @@ class World(
                 Triple(11, 2, 61), Triple(10, 3, 2),
                 Triple(0, 5, 5), Triple(1, 5, 5), Triple(2, 5, 2),
                 Triple(9, 5, 5), Triple(10, 5, 2)
+            )
+            // LE GRAND ARBRE : un antre druidique, grimoires et cristaux
+            7 -> listOf(
+                Triple(0, 0, 52), Triple(1, 0, 47), Triple(10, 0, 48), Triple(11, 0, 46),
+                Triple(0, 5, 7), Triple(1, 5, 8), Triple(10, 5, 54), Triple(11, 5, 64)
             )
             // GUILDE : rateliers, coffres et tables le long des murs, hall ouvert
             6 -> listOf(

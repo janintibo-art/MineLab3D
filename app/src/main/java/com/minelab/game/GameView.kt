@@ -369,7 +369,8 @@ class GameView(context: Context) : View(context) {
         BitmapFactory.decodeResource(resources, R.drawable.house_anarchist),
         BitmapFactory.decodeResource(resources, R.drawable.house_alchemist),
         BitmapFactory.decodeResource(resources, R.drawable.house_club),
-        BitmapFactory.decodeResource(resources, R.drawable.house_guild)
+        BitmapFactory.decodeResource(resources, R.drawable.house_guild),
+        BitmapFactory.decodeResource(resources, R.drawable.house_tree)
     )
     @Suppress("unused")
     private val sHouses: Array<Bitmap> = arrayOf(
@@ -1836,6 +1837,7 @@ class GameView(context: Context) : View(context) {
             if (!clubVisited) { clubVisited = true; saveGame() }
         }
         if (n == 6) showMsg("LA GUILDE ! \"La force du groupe, la gloire a tous !\"")
+        if (n == 7) showMsg("LE GRAND ARBRE... Les runes murmurent doucement.")
         enterHouse(n)
     }
 
@@ -3201,11 +3203,19 @@ class GameView(context: Context) : View(context) {
                 rect.centerX() - tile * 1.1f + tile * 0.2f, rect.centerY() + tile * 0.3f,
                 rect.centerX() + tile * 1.1f + tile * 0.2f, rect.centerY() + tile * 0.58f, paint
             )
-            val big = hn == 5
+            val size2 = when (hn) {
+                7 -> tile * 6.2f          // LE GRAND ARBRE, immense
+                5 -> tile * 4.3f          // le club, imposant
+                else -> tile * 3.6f
+            }
+            val lift2 = when (hn) {
+                7 -> tile * 2.3f
+                5 -> tile * 1.35f
+                else -> tile * 1.05f
+            }
             drawSprite(
                 canvas, sHouseNew[(hn - 1) % sHouseNew.size],
-                rect.centerX(), rect.centerY() - (if (big) tile * 1.35f else tile * 1.05f),
-                if (big) tile * 4.3f else tile * 3.6f
+                rect.centerX(), rect.centerY() - lift2, size2
             )
         }
         if (world.houseMats.containsKey(i) && world.isIsland(gx, gy)) drawHouseDoor(canvas)
@@ -3930,6 +3940,8 @@ class GameView(context: Context) : View(context) {
         val c2 = world.targets2.count { it in world.blocks }
         val obj = when {
             onBoat -> "En mer ! Touchez l'eau pour ramer. L'ile lointaine est au sud..."
+            !world.isInterior(hx, hy) && world.isIsland(hx, hy) && hy >= world.iy0 + 38 ->
+                "L'ILE LOINTAINE. Le Grand Arbre veille... et il a une porte."
             world.isInterior(hx, hy) && world.interiorOf(hx, hy) == 5 -> "LE CONCERT ! Le slip a Pierre resonne !"
             world.isInterior(hx, hy) -> "Vous etes a l'interieur. La porte du bas pour sortir."
             metPierre && !rodOwned -> "Quete : demander la canne a Franki (plage sud-ouest)."

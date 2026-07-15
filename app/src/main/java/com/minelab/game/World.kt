@@ -96,6 +96,9 @@ class World(
     var mageCell = -1
     /** Le tavernier (1) et ses clients (2..7), dans la taverne. */
     val tavernCells = ArrayList<Pair<Int, Int>>()
+    /** Les 2 marchands ambulants (1=nomade, 2=jolie) et leur stand. */
+    val merchantCells = ArrayList<Pair<Int, Int>>()
+    val stallCells = HashMap<Int, Int>()   // case du stand -> id marchand (rendu facade)
     var pierreCell = -1
     var frankiCell = -1
     /** La case de mer ou flotte le slip porte-bonheur de Pierre. */
@@ -1007,6 +1010,27 @@ class World(
                 npcSpawns.add(Pair(c, outdoorIds[n]))
             }
         }
+        // Les 2 MARCHANDS AMBULANTS, sur la place du village, avec leur stand
+        run {
+            // stand = 1 case-mur (facade) ; le marchand se tient juste devant
+            val spots = listOf(
+                Triple(px - 5, villageCy - 3, 1),   // nomade a gauche
+                Triple(px + 5, villageCy - 3, 2)    // jolie a droite
+            )
+            for ((sx, sy, id) in spots) {
+                if (!inside(sx, sy) || !inside(sx, sy + 1)) continue
+                val stall = idx(sx, sy)
+                val front = idx(sx, sy + 1)
+                if (grid[stall] == FLOOR && grid[front] == FLOOR &&
+                    !houseMats.containsKey(stall) && !vendors.containsKey(stall)
+                ) {
+                    stallCells[stall] = id
+                    grid[stall] = WALL
+                    merchantCells.add(Pair(front, id))
+                }
+            }
+        }
+
         // Kaos, le punk, traine devant son squat
         run {
             val kx = px + 6

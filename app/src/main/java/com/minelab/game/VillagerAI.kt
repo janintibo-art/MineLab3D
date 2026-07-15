@@ -92,7 +92,10 @@ object VillagerAI {
             Perso("Ferra", "forgeronne", 0.6f, 0.8f),
             Perso("Krogg", "mercenaire", 0.4f, 0.9f),
             Perso("Aldemar", "noble", 0.7f, 0.5f),
-            Perso("Lyria", "barde", 1.0f, 0.1f)
+            Perso("Lyria", "barde", 1.0f, 0.1f),
+            // Les 2 MARCHANDS AMBULANTS (indices 36, 37)
+            Perso("Zayn", "marchand", 1.0f, 0.4f),
+            Perso("Esmee", "marchande", 1.0f, 0.2f)
         )
         // Le hasard de la graine module legerement les traits : chaque partie
         // a des villageois un peu differents.
@@ -367,6 +370,20 @@ object VillagerAI {
             "Dans mon pays, la mer est SOLIDE l'hiver. Imagine.",
             "Ton epee est correcte. Ton cri de guerre, a travailler."
         ),
+        "marchand" to listOf(
+            "Tout a un prix, l'ami. Meme les sourires. Surtout les sourires.",
+            "J'ai traverse sept deserts pour ces babioles. SEPT.",
+            "Negocie, negocie ! Mais pas trop, j'ai des enfants. (Enfin, un chameau.)",
+            "Cette fiole ? Rarissime. Comme ma patience. Alors, on achete ?",
+            "Un bon marche, c'est quand PERSONNE n'est content. On y est presque !"
+        ),
+        "marchande" to listOf(
+            "Bonnes affaires et sourires garantis ! ... Les affaires surtout.",
+            "Achete bien, vis mieux : c'est grave sur mon coeur. Et sur ma pancarte.",
+            "Tu as l'oeil ! Cet objet vient de TRES loin. Ou de derriere, je sais plus.",
+            "Pour toi, un prix d'ami. Mes amis sont... economiquement variables.",
+            "Marchande avec moi ! J'adore ca. Ca me rappelle mon ex."
+        ),
         "tavernier" to listOf(
             "Une 8.6 ? J'ai QUE ca. C'est une taverne de gout.",
             "Paye ta tournee, l'aventurier, et je te raconte tout.",
@@ -576,6 +593,16 @@ object VillagerAI {
             "Je compose une ballade sur cette taverne. Refrain : GLOU.",
             "La chanson avant le chaos ! ... ou l'inverse, ca depend.",
             "Un jour je jouerai au Punk Club. Kaos m'a promis la scene !"
+        ),
+        "Zayn" to listOf(
+            "J'ai vendu de la neige a un roi des glaces. Vrai record.",
+            "Mon chameau porte-bonheur s'appelle Fortune. Il fuit souvent.",
+            "Chaque objet a une histoire. Que j'invente. Mais quelle histoire !"
+        ),
+        "Esmee" to listOf(
+            "Mes fioles guerissent tout. Sauf les coeurs brises. Enfin, presque.",
+            "J'ai appris a marchander avant a marcher. Papa etait fier.",
+            "Un porte-bonheur ? J'en ai treize. Ca porte malheur, treize. J'en ai douze."
         )
     ) }
 
@@ -604,7 +631,9 @@ object VillagerAI {
         "Ferra" to listOf("*vide sa chope d'un trait*", "Par l'enclume !"),
         "Krogg" to listOf("Grmpf.", "*crache par terre*"),
         "Aldemar" to listOf("*leve son verre*", "Quelle decheance. J'adore."),
-        "Lyria" to listOf("*gratte une corde*", "La la laaa !")
+        "Lyria" to listOf("*gratte une corde*", "La la laaa !"),
+        "Zayn" to listOf("*fait tinter des pieces*", "Marche conclu ?"),
+        "Esmee" to listOf("*ajuste son foulard*", "Sourire garanti !")
     ) }
 
     private val RX by lazy { Regex("\\{(\\w+)\\}") }

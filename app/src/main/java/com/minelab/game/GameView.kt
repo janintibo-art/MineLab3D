@@ -202,11 +202,32 @@ class GameView(context: Context) : View(context) {
     // --- caches secretes : trappe cachee -> antichambre (monstres) -> coffre ---
     private val secretFound = HashSet<Int>()           // caches deja decouvertes (cellule declencheur)
     private val secretLooted = HashSet<Int>()          // coffres deja pilles
+    // --- LE COMMERCE : boutique, achat/vente, marchandage ---
+    private var showShop = false
+    private var shopMerchant = 0                        // 1 nomade, 2 jolie
+    private var shopTab = 0                             // 0 acheter, 1 vendre
+    private var shopDiscount = 0                        // reduction obtenue (%)
+    private var shopHaggleTries = 0                     // tentatives de negoce ce passage
+    private var shopMood = 0                            // humeur : <0 vexe, tarifs durcis
+    private var shopMsg = ""
+    private var shopMsgT = 0f
+    private val shopRowRects = ArrayList<RectF>()
+    private val shopBuyRect = RectF()
+    private val shopSellRect = RectF()
+    private val shopHaggleRect = RectF()
+    private val shopCloseRect = RectF()
     private val sSpell = Array(4) { Array(4) { arrayOfNulls<Bitmap>(5) } }
     private val sTav: Array<Array<Bitmap>> = Array(7) { i ->
         val id = i + 1
         arrayOf(bmp("tav${id}d"), bmp("tav${id}u"), bmp("tav${id}l"), bmp("tav${id}r"))
     }
+    private val sMerc: Array<Array<Bitmap>> = Array(2) { i ->
+        val id = i + 1
+        arrayOf(bmp("merc${id}d"), bmp("merc${id}u"), bmp("merc${id}l"), bmp("merc${id}r"))
+    }
+    private val sStall: Array<Bitmap> = arrayOf(
+        bmp("stall_nomad"), bmp("stall_pretty")
+    )
     private val sMage: Array<Bitmap> = arrayOf(
         BitmapFactory.decodeResource(resources, R.drawable.maged),
         BitmapFactory.decodeResource(resources, R.drawable.mageu),
@@ -661,6 +682,7 @@ class GameView(context: Context) : View(context) {
         spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
         spellSel = -1; spellCd = 0f; spellPicker = false; bolts.clear()
         gold = 0; goldAnim = 0f; secretFound.clear(); secretLooted.clear()
+        showShop = false; shopMerchant = 0; shopDiscount = 0; shopMood = 0
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
         petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
@@ -1141,8 +1163,8 @@ class GameView(context: Context) : View(context) {
         }
 
         if (gameOver || victory || showMenu || showInv || showHelp || showMap || showSettings ||
-            showSudoku || showLights || miniPlate >= 0
-        ) return
+            showSudoku || showLights || miniPlate >= 0 || showShop
+        ) { if (showShop) shopMsgT = (shopMsgT - dt).coerceAtLeast(0f); return }
 
         updateMobs(dt)
         updateWalkers(dt)
@@ -1622,6 +1644,9 @@ class GameView(context: Context) : View(context) {
         for ((cell, id) in world.tavernCells) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 6, id))
         }
+        for ((cell, id) in world.merchantCells) {
+            walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 7, id))
+        }
         if (world.pierreCell >= 0) {
             walkers.add(Walker(world.cx(world.pierreCell) + 0.5f, world.cy(world.pierreCell) + 0.5f, 3, 1))
         }
@@ -1911,6 +1936,7 @@ class GameView(context: Context) : View(context) {
         4 -> villagers.getOrNull(17 + w.id)
         5 -> villagers.getOrNull(28)
         6 -> villagers.getOrNull(28 + w.id)
+        7 -> villagers.getOrNull(35 + w.id)
         else -> null
     }
 
@@ -2075,6 +2101,128 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    // ============================================================ LE COMMERCE
+
+    /** Un article en vente : nom, prix de base, action a l'achat. */
+    private class Ware(val key: String, val label: String, val price: Int)
+
+    /** Ce que le marchand n vend (catalogue distinct par marchand). */
+    private fun catalogue(n: Int): List<Ware> = if (n == 1) listOf(
+        Ware("energy", "Canette de 8.6", 25),
+        Ware("flags", "Lot de 5 drapeaux", 30),
+        Ware("heal", "Potion de soin (+50 PV)", 40),
+        Ware("boots", "Vieille botte (deco)", 8),
+        Ware("shroom", "Champignon mystere", 55)
+    ) else listOf(
+        Ware("heal_big", "Grand elixir (+100 PV)", 70),
+        Ware("energy", "Canette de 8.6", 22),
+        Ware("fish", "Poisson frais", 15),
+        Ware("flags", "Lot de 5 drapeaux", 28),
+        Ware("charm", "Porte-bonheur (+2 coeurs)", 60)
+    )
+
+    /** Ce que le heros peut revendre, et a quel prix (avant reduction). */
+    private fun sellable(): List<Ware> {
+        val out = ArrayList<Ware>()
+        if (fishCount > 0) out.add(Ware("s_fish", "Poisson frais x$fishCount", 8))
+        if (bootCount > 0) out.add(Ware("s_boot", "Vieille botte x$bootCount", 5))
+        if (algaeCount > 0) out.add(Ware("s_algae", "Paquet d'algues x$algaeCount", 4))
+        if (shroomCount > 0) out.add(Ware("s_shroom", "Champignon x$shroomCount", 30))
+        if (energyCount > 0) out.add(Ware("s_energy", "Canette de 8.6 x$energyCount", 12))
+        return out
+    }
+
+    /** Prix effectif a l'achat (reduction du marchandage, humeur du marchand). */
+    private fun buyPrice(base: Int): Int {
+        val moodPenalty = if (shopMood < 0) 15 else 0
+        val p = base * (100 - shopDiscount + moodPenalty) / 100
+        return p.coerceAtLeast(1)
+    }
+
+    /** Prix de revente (le marchandage l'ameliore aussi, un peu). */
+    private fun sellPrice(base: Int): Int {
+        val bonus = (shopDiscount / 2)
+        val moodPenalty = if (shopMood < 0) 15 else 0
+        return (base * (100 + bonus - moodPenalty) / 100).coerceAtLeast(1)
+    }
+
+    private fun shopSay(msg: String) { shopMsg = msg; shopMsgT = 4f }
+
+    private fun openShop(n: Int) {
+        shopMerchant = n
+        showShop = true
+        shopTab = 0
+        shopDiscount = 0
+        shopHaggleTries = 0
+        shopMood = 0
+        val who = if (n == 1) "Le marchand nomade" else "La jolie marchande"
+        shopSay("$who : \"Bonnes affaires et sourires garantis ! Que veux-tu ?\"")
+    }
+
+    /** Le heros tente de negocier : jet influence par l'or depense et le hasard. */
+    private fun haggle() {
+        if (shopHaggleTries >= 3) {
+            shopSay("\"N'insiste pas trop, l'ami... mon dernier prix est mon dernier prix !\"")
+            return
+        }
+        shopHaggleTries++
+        val roll = npcRnd.nextFloat()
+        // plus on a deja negocie, plus c'est dur ; un brin de chance
+        val seuil = 0.35f + shopHaggleTries * 0.15f
+        when {
+            roll > seuil + 0.25f -> {
+                val gain = 5 + npcRnd.nextInt(8)
+                shopDiscount = (shopDiscount + gain).coerceAtMost(35)
+                audio.play("chest")
+                shopSay("\"Pfff... d'accord, $gain% de moins. Mais tu me ruines !\" (-$shopDiscount% au total)")
+            }
+            roll > seuil -> {
+                shopSay("\"Hmmm... je reflechis. Propose encore, pour voir.\"")
+            }
+            else -> {
+                shopMood--
+                shopDiscount = (shopDiscount - 5).coerceAtLeast(0)
+                audio.play("error")
+                shopSay("\"Tu me VEXES ! Les prix remontent, tiens !\"")
+            }
+        }
+    }
+
+    private fun buyWare(wr: Ware) {
+        val price = buyPrice(wr.price)
+        if (gold < price) { shopSay("\"Reviens quand tu auras les moyens, tresor.\""); return }
+        gold -= price
+        when (wr.key) {
+            "energy" -> energyCount++
+            "flags" -> flagsLeft += 5
+            "heal" -> hp = (hp + 50).coerceAtMost(100)
+            "heal_big" -> hp = 100
+            "boots" -> bootCount++
+            "shroom" -> shroomCount++
+            "fish" -> fishCount++
+            "charm" -> { heartsGot += 2; hp = (hp + 20).coerceAtMost(100) }
+        }
+        audio.play("key")
+        shopSay("Achat : ${wr.label} pour $price pieces. \"Excellent choix !\"")
+        saveGame()
+    }
+
+    private fun sellWare(wr: Ware) {
+        val price = sellPrice(wr.price)
+        when (wr.key) {
+            "s_fish" -> if (fishCount > 0) fishCount-- else return
+            "s_boot" -> if (bootCount > 0) bootCount-- else return
+            "s_algae" -> if (algaeCount > 0) algaeCount-- else return
+            "s_shroom" -> if (shroomCount > 0) shroomCount-- else return
+            "s_energy" -> if (energyCount > 0) energyCount-- else return
+            else -> return
+        }
+        gold += price
+        audio.play("chest")
+        shopSay("Vendu pour $price pieces. \"Ca m'interesse, ca !\"")
+        saveGame()
+    }
+
     private fun talkTo(w: Walker) {
         dlgChoices = emptyList()   // toute nouvelle discussion repart de zero
         dialogueX = w.x
@@ -2128,6 +2276,10 @@ class GameView(context: Context) : View(context) {
                 dialogue = "Oi !"
                 dialogueName = ""
             }
+        } else if (w.kind == 7) {
+            // Un marchand ambulant : ouvre la boutique
+            openShop(w.id)
+            return
         } else if (w.kind == 6) {
             // Le tavernier et ses clients
             val p = persoFor(w)
@@ -2308,6 +2460,7 @@ class GameView(context: Context) : View(context) {
                 4 -> "PARLER"
                 5 -> "PARLER AU MAGE"
                 6 -> if (wk.id == 1) "PARLER AU TAVERNIER" else "PARLER"
+                7 -> "MARCHANDER"
                 3 -> if (wk.id == 1) "PARLER A PIERRE" else "PARLER A FRANKI"
                 else -> "CARESSER"
             }
@@ -3070,6 +3223,7 @@ class GameView(context: Context) : View(context) {
         if (miniPlate >= 0) drawMini(canvas, w, h)
         if (showMenu) drawMenu(canvas, w, h)
         if (showInv) drawInventory(canvas, w, h)
+        if (showShop) drawShop(canvas, w, h)
         if (showHelp) drawHelp(canvas, w, h)
         if (gameOver || victory) drawEnd(canvas, w, h)
 
@@ -3355,6 +3509,7 @@ class GameView(context: Context) : View(context) {
         }
         drawMobs(canvas, w)
         drawBolts(canvas, w)
+        drawStalls(canvas, w)
         drawWalkers(canvas, w)
         drawHero(canvas, w)
         drawIslandLife(canvas, w)
@@ -4005,6 +4160,127 @@ class GameView(context: Context) : View(context) {
         paint.strokeCap = Paint.Cap.BUTT
     }
 
+    /** L'ecran de commerce : onglets acheter/vendre, marchandage, or. */
+    private fun drawShop(canvas: Canvas, w: Float, h: Float) {
+        drawStoneBg(canvas, w, h, 214)
+        shopRowRects.clear()
+        val who = if (shopMerchant == 1) "MARCHAND NOMADE" else "JOLIE MARCHANDE"
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(255, 210, 90)
+        paint.textSize = h * 0.03f
+        canvas.drawText(who, w / 2f, h * 0.075f, paint)
+        // bourse
+        paint.textSize = h * 0.022f
+        paint.color = Color.rgb(255, 225, 120)
+        canvas.drawText("Bourse : $gold pieces" + (if (shopDiscount > 0) "   (remise -$shopDiscount%)" else ""),
+            w / 2f, h * 0.11f, paint)
+        paint.isFakeBoldText = false
+
+        // Onglets acheter / vendre
+        val tabW = w * 0.34f
+        val tabH = h * 0.05f
+        val ty = h * 0.135f
+        shopBuyRect.set(w / 2f - tabW - w * 0.01f, ty, w / 2f - w * 0.01f, ty + tabH)
+        shopSellRect.set(w / 2f + w * 0.01f, ty, w / 2f + w * 0.01f + tabW, ty + tabH)
+        for ((r, lab, idxTab) in listOf(
+            Triple(shopBuyRect, "ACHETER", 0), Triple(shopSellRect, "VENDRE", 1)
+        )) {
+            paint.style = Paint.Style.FILL
+            paint.color = if (shopTab == idxTab) Color.rgb(180, 130, 40) else Color.rgb(60, 55, 48)
+            canvas.drawRoundRect(r, tabH * 0.3f, tabH * 0.3f, paint)
+            paint.color = Color.WHITE
+            paint.isFakeBoldText = true
+            paint.textSize = h * 0.022f
+            canvas.drawText(lab, r.centerX(), r.centerY() + h * 0.008f, paint)
+            paint.isFakeBoldText = false
+        }
+
+        // Liste des articles
+        val items = if (shopTab == 0) catalogue(shopMerchant) else sellable()
+        var y = h * 0.21f
+        val rh = h * 0.058f
+        val rowW = w * 0.86f
+        val rx = (w - rowW) / 2f
+        if (items.isEmpty()) {
+            paint.color = Color.rgb(200, 200, 200)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = h * 0.02f
+            canvas.drawText("Tu n'as rien a me vendre, pour l'instant.", w / 2f, y + h * 0.05f, paint)
+        }
+        for (wr in items) {
+            val r = RectF(rx, y, rx + rowW, y + rh)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(230, 40, 38, 32)
+            canvas.drawRoundRect(r, rh * 0.2f, rh * 0.2f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = h * 0.002f
+            paint.color = Color.rgb(150, 120, 60)
+            canvas.drawRoundRect(r, rh * 0.2f, rh * 0.2f, paint)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(235, 230, 220)
+            paint.textAlign = Paint.Align.LEFT
+            paint.textSize = h * 0.021f
+            canvas.drawText(wr.label, rx + w * 0.02f, r.centerY() + h * 0.007f, paint)
+            val price = if (shopTab == 0) buyPrice(wr.price) else sellPrice(wr.price)
+            paint.textAlign = Paint.Align.RIGHT
+            paint.color = if (shopTab == 0 && gold < price) Color.rgb(220, 90, 80) else Color.rgb(255, 215, 100)
+            paint.isFakeBoldText = true
+            canvas.drawText("$price or", rx + rowW - w * 0.02f, r.centerY() + h * 0.007f, paint)
+            paint.isFakeBoldText = false
+            shopRowRects.add(r)
+            y += rh + h * 0.01f
+        }
+
+        // Bouton MARCHANDER + fermer
+        val bh = h * 0.055f
+        shopHaggleRect.set(w * 0.1f, h * 0.83f, w * 0.55f, h * 0.83f + bh)
+        paint.style = Paint.Style.FILL
+        paint.color = if (shopHaggleTries >= 3) Color.rgb(70, 60, 50) else Color.rgb(70, 110, 90)
+        canvas.drawRoundRect(shopHaggleRect, bh * 0.3f, bh * 0.3f, paint)
+        paint.color = Color.WHITE
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.022f
+        canvas.drawText("MARCHANDER (${3 - shopHaggleTries})", shopHaggleRect.centerX(), shopHaggleRect.centerY() + h * 0.008f, paint)
+
+        shopCloseRect.set(w * 0.6f, h * 0.83f, w * 0.9f, h * 0.83f + bh)
+        paint.color = Color.rgb(120, 60, 55)
+        canvas.drawRoundRect(shopCloseRect, bh * 0.3f, bh * 0.3f, paint)
+        paint.color = Color.WHITE
+        canvas.drawText("FERMER", shopCloseRect.centerX(), shopCloseRect.centerY() + h * 0.008f, paint)
+        paint.isFakeBoldText = false
+
+        // Reparties du marchand
+        if (shopMsgT > 0f && shopMsg.isNotEmpty()) {
+            paint.color = Color.rgb(255, 235, 180)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = h * 0.019f
+            val words = shopMsg.split(" ")
+            val lines = ArrayList<String>()
+            var cur = ""
+            for (wd in words) {
+                if ((cur + " " + wd).length > 46) { lines.add(cur); cur = wd } else cur = if (cur.isEmpty()) wd else "$cur $wd"
+            }
+            if (cur.isNotEmpty()) lines.add(cur)
+            var yy = h * 0.9f
+            for (ln in lines.take(3)) { canvas.drawText(ln, w / 2f, yy, paint); yy += h * 0.026f }
+        }
+    }
+
+    /** Villageois et animaux -- (les stands sont dessines dans drawStalls) */
+    private fun drawStalls(canvas: Canvas, w: Float) {
+        for ((cell, id) in world.stallCells) {
+            val cxx = sx(world.cx(cell) + 0.5f, w)
+            val cyy = sy(world.cy(cell) + 0.5f)
+            if (abs(world.cx(cell) + 0.5f - camX) > 12f || abs(world.cy(cell) + 0.5f - camY) > 12f) continue
+            paint.color = Color.argb(70, 0, 0, 0)
+            canvas.drawOval(cxx - tile * 1.2f, cyy + tile * 0.35f, cxx + tile * 1.2f, cyy + tile * 0.62f, paint)
+            drawSprite(canvas, sStall[(id - 1) % 2], cxx, cyy - tile * 0.65f, tile * 3.1f)
+        }
+    }
+
     /** Villageois et animaux. */
     private fun drawWalkers(canvas: Canvas, w: Float) {
         for (wk in walkers) {
@@ -4023,6 +4299,7 @@ class GameView(context: Context) : View(context) {
                 4 -> sGld[(wk.id - 1) % 10]
                 5 -> sMage
                 6 -> sTav[(wk.id - 1) % 7]
+                7 -> sMerc[(wk.id - 1) % 2]
                 else -> sPet[(wk.id - 1) % 10]
             }
             val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f
@@ -5362,10 +5639,32 @@ class GameView(context: Context) : View(context) {
 
     private fun handleTouch(e: MotionEvent): Boolean {
         val am = e.actionMasked
+        // La BOUTIQUE capte tout le toucher quand elle est ouverte
+        if (showShop) {
+            if (am != MotionEvent.ACTION_UP) return true
+            if (shopBuyRect.contains(e.x, e.y)) { shopTab = 0; return true }
+            if (shopSellRect.contains(e.x, e.y)) { shopTab = 1; return true }
+            if (shopHaggleRect.contains(e.x, e.y)) { haggle(); return true }
+            if (shopCloseRect.contains(e.x, e.y)) {
+                showShop = false
+                val bye = if (shopMerchant == 1) "\"Bonne route, l'ami ! Reviens quand tu veux.\""
+                          else "\"A bientot, tresor ! Achete bien, vis mieux !\""
+                showMsg(bye)
+                return true
+            }
+            val items = if (shopTab == 0) catalogue(shopMerchant) else sellable()
+            for (k in items.indices) {
+                if (k < shopRowRects.size && shopRowRects[k].contains(e.x, e.y)) {
+                    if (shopTab == 0) buyWare(items[k]) else sellWare(items[k])
+                    return true
+                }
+            }
+            return true
+        }
         // Gestion multi-touch du joystick
         if (joyOn && joyOwned && state == PLAYING && miniPlate < 0 &&
             !showMenu && !showInv && !showHelp && !showMap && !showSettings &&
-            !showSudoku && !showLights && !gameOver && !victory
+            !showSudoku && !showLights && !gameOver && !victory && !showShop
         ) {
             when (am) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {

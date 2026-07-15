@@ -161,6 +161,8 @@ class GameView(context: Context) : View(context) {
     private var dlgChoices: List<String> = emptyList()
     private val dlgChoiceRects = ArrayList<RectF>()
     private var dlgWalkerIdx = -1        // a qui repond-on ?
+    private var dlgReponses: List<VillagerAI.Reponse> = emptyList()   // effets des choix
+    private var vmemRestore = true       // restaurer les souvenirs (pas en nouvelle partie)
     private var dlgKind = 0              // 0 papotage ; 1 menu du mage ; 2 question de cours
     private var dlgElems: List<Int> = emptyList()   // elements proposes au menu du mage
     private var dlgElem = -1             // element du cours en attente de reponse
@@ -617,6 +619,8 @@ class GameView(context: Context) : View(context) {
         metPierre = false; rodOwned = false; fishCasts = 0; slipOwned = false; ticketOwned = false
         fishing = false; fishBiteT = 0f; fishCount = 0
         onBoat = false; boatCell = -1
+        vmemRestore = false
+        try { prefs.edit().remove("vmem").apply() } catch (t: Throwable) { }
         spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
@@ -726,6 +730,9 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("boat", onBoat)
         e.putInt("boatC", boatCell)
         e.putString("spells", spellKnown.joinToString("") { if (it) "1" else "0" })
+        if (villagers.isNotEmpty()) {
+            e.putString("vmem", try { VillagerAI.serialiser(villagers) } catch (t: Throwable) { "" })
+        }
         e.putBoolean("sharp", swordSharp)
         e.putBoolean("slip", slipOwned)
         e.putBoolean("ticket", ticketOwned)
@@ -1459,6 +1466,9 @@ class GameView(context: Context) : View(context) {
         } catch (t: Throwable) {
             emptyList()
         }
+        if (vmemRestore && villagers.isNotEmpty()) {
+            try { VillagerAI.restaurer(villagers, prefs.getString("vmem", null)) } catch (t: Throwable) { }
+        }
         for ((cell, id) in world.npcSpawns) {
             walkers.add(Walker(world.cx(cell) + 0.5f, world.cy(cell) + 0.5f, 0, id))
         }
@@ -1607,6 +1617,26 @@ class GameView(context: Context) : View(context) {
 
     // ------------------------------------------------ la vraie discussion
 
+    /** Ce que le village SAIT (ou saura bientot) des exploits du heros. */
+    private fun heroFaits(): Set<String> {
+        val f = HashSet<String>()
+        if (world.bossDefeated) f.add("heros")
+        if (ticketOwned) f.add("slip")
+        if (fishTotal >= 3) f.add("peche")
+        if (spraysDone >= 3) f.add("tags")
+        if (spellKnown.any { it }) f.add("magie")
+        if (boatCell >= 0 && world.boatCell >= 0 && boatCell != world.boatCell) f.add("marin")
+        return f
+    }
+
+    /** Propose les reponses d'une Replique de l'IA. */
+    private fun offerReplique(rep: VillagerAI.Replique, w: Walker) {
+        dlgWalkerIdx = walkers.indexOf(w)
+        dlgKind = 0
+        dlgReponses = rep.reponses
+        dlgChoices = rep.reponses.map { it.texte }
+    }
+
     /** Le Perso (VillagerAI) derriere un walker, s'il en a un. */
     private fun persoFor(w: Walker): VillagerAI.Perso? = when (w.kind) {
         0 -> if (villagers.isEmpty()) null else villagers.getOrNull((w.id - 1) % villagers.size)
@@ -1628,11 +1658,13 @@ class GameView(context: Context) : View(context) {
         w.dir = if (abs(ddx) >= abs(ddy)) (if (ddx > 0) 3 else 2) else (if (ddy > 0) 0 else 1)
     }
 
-    /** Les trois reponses toujours possibles quand on papote. */
+    /** Des choix de papotage libres (quand le jeu a redige la replique). */
     private fun offerChatChoices(w: Walker) {
+        val p = persoFor(w) ?: return
         dlgWalkerIdx = walkers.indexOf(w)
         dlgKind = 0
-        dlgChoices = listOf("Raconte !", "N'importe quoi...", "Bonne journee !")
+        dlgReponses = try { VillagerAI.choixLibres(p, npcRnd) } catch (t: Throwable) { emptyList() }
+        dlgChoices = dlgReponses.map { it.texte }
     }
 
     private val LESSON_NAMES = arrayOf("L'AIR", "L'EAU", "LA TERRE", "LE FEU")
@@ -1664,11 +1696,13 @@ class GameView(context: Context) : View(context) {
         if (left.isEmpty()) {
             val p = persoFor(w)
             dialogue = try {
-                if (p != null) VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
-                else "Mon meilleur eleve ! Snif. FIERTE."
+                if (p != null) {
+                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                    offerReplique(rep, w)
+                    rep.texte
+                } else "Mon meilleur eleve ! Snif. FIERTE."
             } catch (t: Throwable) { "Mon meilleur eleve ! Snif. FIERTE." }
             setBubbleAt(w)
-            offerChatChoices(w)
             return
         }
         val n = 4 - left.size
@@ -1694,18 +1728,29 @@ class GameView(context: Context) : View(context) {
         when (kind) {
             0 -> {   // papotage generique, avec TOUT le monde
                 val p = persoFor(w) ?: return
-                dialogue = try { VillagerAI.repondre(p, k, npcRnd) } catch (t: Throwable) { "..." }
+                val effet = dlgReponses.getOrNull(k)?.effet ?: VillagerAI.EF_BYE
+                val rep = try { VillagerAI.reagir(p, effet, npcRnd) } catch (t: Throwable) {
+                    VillagerAI.Replique("...", emptyList())
+                }
+                dialogue = rep.texte
                 dialogueName = p.nom
                 setBubbleAt(w)
-                if (k != 2) offerChatChoices(w)   // au revoir = fin de la discussion
+                if (rep.reponses.isNotEmpty()) {
+                    dlgKind = 0
+                    dlgReponses = rep.reponses
+                    dlgChoices = rep.reponses.map { it.texte }
+                }
             }
             1 -> {   // menu du mage
                 if (k >= dlgElems.size) {   // "Juste discuter"
                     val p = persoFor(w) ?: return
-                    dialogue = try { VillagerAI.parler(p, time, world.bossDefeated, npcRnd) } catch (t: Throwable) { "Les runes, tout ca..." }
+                    dialogue = try {
+                        val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                        offerReplique(rep, w)
+                        rep.texte
+                    } catch (t: Throwable) { "Les runes, tout ca..." }
                     dialogueName = "Maitre Zephyrin"
                     setBubbleAt(w)
-                    offerChatChoices(w)
                     return
                 }
                 val e = dlgElems[k]
@@ -1774,10 +1819,12 @@ class GameView(context: Context) : View(context) {
                     } catch (t: Throwable) { "No futur, l'ami." }
                 }
             } else questDialogue(w.id) ?: (try {
-                VillagerAI.parler(p, time, world.bossDefeated, npcRnd)
+                val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                if (p.nom != "Kaos") offerReplique(rep, w)
+                rep.texte
             } catch (t: Throwable) {
                 "Belle journee, non ?"
-            }).also { if (p.nom != "Kaos") offerChatChoices(w) }
+            })
             dialogueName = p.nom
         } else if (w.kind == 0) {
             dialogue = listOf(
@@ -1790,10 +1837,11 @@ class GameView(context: Context) : View(context) {
             if (idx2 < villagers.size) {
                 val p2 = villagers[idx2]
                 dialogue = try {
-                    VillagerAI.parler(p2, time, world.bossDefeated, npcRnd)
+                    val rep = VillagerAI.discuter(p2, time, heroFaits(), npcRnd)
+                    offerReplique(rep, w)
+                    rep.texte
                 } catch (t: Throwable) { "Oi ! Punk's not dead." }
                 dialogueName = p2.nom
-                offerChatChoices(w)
             } else {
                 dialogue = "Oi !"
                 dialogueName = ""
@@ -1808,10 +1856,11 @@ class GameView(context: Context) : View(context) {
             if (idx3 < villagers.size) {
                 val p3 = villagers[idx3]
                 dialogue = try {
-                    VillagerAI.parler(p3, time, world.bossDefeated, npcRnd)
+                    val rep = VillagerAI.discuter(p3, time, heroFaits(), npcRnd)
+                    offerReplique(rep, w)
+                    rep.texte
                 } catch (t: Throwable) { "Pour la guilde !" }
                 dialogueName = p3.nom
-                offerChatChoices(w)
             } else {
                 dialogue = "Pour la guilde !"
                 dialogueName = ""

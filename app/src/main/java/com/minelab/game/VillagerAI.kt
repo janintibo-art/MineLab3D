@@ -25,6 +25,17 @@ object VillagerAI {
         var bouscule = 0              // le heros lui a fonce dedans (rancune legere)
         var vexe = 0                  // moqueries recentes : trop, et c'est la COLERE
         var connaitExploits = false   // a entendu parler du boss vaincu
+        // --- les VRAIS souvenirs ---
+        var confidences = 0           // gentillesses recues : la relation grandit
+        var moqueries = 0             // moqueries subies, JAMAIS oubliees
+        var potinEnCours = ""         // la suite du potin, si le heros veut la connaitre
+        var dernierSujet = ""         // de quoi parlait-on la derniere fois ?
+        var derniereLigne = ""        // anti-radotage
+        val racontes = HashSet<Int>() // les potins deja racontes a CE heros
+        val faitsDits = HashSet<String>()  // les exploits du heros deja commentes
+
+        /** Le niveau de relation : les moqueries pesent double. */
+        fun relation() = confidences - moqueries * 2
     }
 
     // ------------------------------------------------------------ personnalites
@@ -192,6 +203,51 @@ object VillagerAI {
         ),
         "moi_meme" to listOf("moi", "quelqu'un de mon age", "un honnete artisan", "les gens d'ici"),
         "boude" to listOf("Je boude.", "Na.", "Je ne dis plus rien.", "Tu me vexes, la."),
+        "hostile" to listOf(
+            "Ah. Toi.",
+            "{grognement}... qu'est-ce que tu veux ENCORE ?",
+            "Tiens. L'insolent. Fais vite.",
+            "On ne t'a pas assez vu, peut-etre ?"
+        ),
+        "confident_salut" to listOf(
+            "MON ami ! {content} !",
+            "{surnom} ! Viens la, j'ai des choses a te dire !",
+            "Enfin quelqu'un de confiance ! {content} !"
+        ),
+        "apaise" to listOf(
+            "Bon... excuses acceptees. {question_sympa} ?",
+            "Hmph. N'en parlons plus. {question_sympa} ?",
+            "Ca va pour cette fois. Mais je n'oublie RIEN, moi."
+        ),
+        "flatte" to listOf(
+            "Ah, tu me flattes ! Continue, ca ne fait pas de mal.",
+            "Heh. On dit que je suis {qualite}, c'est vrai.",
+            "Voila quelqu'un qui a du gout !"
+        ),
+        "merci_confiance" to listOf(
+            "Merci... ca compte, tu sais. {question_sympa} ?",
+            "Je savais que je pouvais compter sur toi.",
+            "Toi, tu es de la famille maintenant."
+        ),
+        "qualite" to listOf("d'excellente compagnie", "trop genereux", "le meilleur du village", "irremplacable"),
+        "rappel" to listOf(
+            "La derniere fois, on parlait de {dernier_sujet}, non ? Eh bien j'ai du NOUVEAU :",
+            "Toujours curieux de {dernier_sujet} ? Alors ecoute :",
+            "Tu te souviens, {dernier_sujet} ? L'histoire continue :"
+        ),
+        "consequence" to listOf(
+            "il dort avec une lampe", "il ne passe plus par la",
+            "il salue les rochers, au cas ou", "il refuse d'en reparler"
+        ),
+        "untel2" to listOf("Ulric", "Nina", "Pip", "la doyenne", "Franki"),
+        "chute_potin" to listOf(
+            "Motus, hein !", "Je n'ai RIEN dit.", "Tu ne tiens pas ca de moi.",
+            "Le village est petit, les oreilles sont grandes."
+        ),
+        "objet_dispute" to listOf(
+            "de tarte aux algues", "de chaise empruntee", "de poule voyageuse",
+            "de record de peche conteste"
+        ),
         "aurevoir" to listOf(
             "A la prochaine, {surnom} !",
             "Bonne route, {surnom} !",
@@ -274,6 +330,65 @@ object VillagerAI {
             "Goute mes champis : tu verras l'invisible.",
             "L'ile cache une autre entree. Ouvre les yeux."
         )
+    ) }
+
+    /** Les potins en deux temps : l'accroche... et la suite si on la reclame. */
+    private val POTINS: List<Pair<String, String>> by lazy { listOf(
+        "Il parait que {untel} a vu {truc_bizarre} pres de {lieu}..." to
+            "Eh bien {untel} jure que ca lui a PARLE. Depuis, {consequence} ! {chute_potin}",
+        "Entre nous : {untel} {secret}..." to
+            "Et le pire ? Tout le village le sait SAUF {untel2} ! {chute_potin}",
+        "On raconte que le donjon cache encore {tresor}..." to
+            "Le garde dit que c'est faux. C'est EXACTEMENT ce qu'il dirait pour le garder, non ?",
+        "{untel} ne parle plus a {untel2} depuis la derniere fete..." to
+            "La raison ? Une histoire {objet_dispute}. Je n'invente RIEN.",
+        "Une barque a disparu l'autre nuit, sans un bruit..." to
+            "Revenue au matin, pleine de sable NOIR. Personne n'ose demander a qui.",
+        "Le distributeur aurait raconte une histoire VRAIE, une fois..." to
+            "Verifiee par {untel} : le punk et son chien EXISTENT. Ils passeraient au large, certaines nuits.",
+        "{untel} s'entraine en cachette derriere {lieu}..." to
+            "A quoi ? A lever des tornades en agitant les bras ! Comme un poulet ! Je ne juge pas.",
+        "Le Grand Arbre de l'ile lointaine aurait BOUGE de trois pas..." to
+            "Trois pas vers la mer ! Le mage dit que c'est pour la vue. Moi je dis qu'il FUIT quelque chose."
+    ) }
+
+    /** Les aveux de confidence, par metier (avec un fonds commun). */
+    private val AVEUX: Map<String, List<String>> by lazy { mapOf(
+        "magicien" to listOf(
+            "la mouette-theiere... c'etait mon CHAPEAU. Le sort a rate deux fois.",
+            "je n'ai jamais eu 400 ans. J'en ai 397. La coquetterie, tu comprends."
+        ),
+        "punk" to listOf(
+            "je range ma chambre. EN CACHETTE. Si ca se sait, je suis fini.",
+            "le systeme, tout ca... mais le distributeur me fait credit. CHUT."
+        ),
+        "gamin" to listOf(
+            "j'ai deja vu l'entree secrete, au nord-ouest. J'ai EU PEUR.",
+            "je dors encore avec mon doudou-mouette. Tu le dis, t'es mort."
+        ),
+        "doyenne" to listOf(
+            "la porte scellee du donjon... c'est nous qui l'avons fermee. Il y a longtemps.",
+            "je triche aux cartes contre Ulric. Depuis quarante ans."
+        ),
+        "garde" to listOf(
+            "je n'ai jamais degaine cette epee. Elle est peut-etre rouillee DEDANS.",
+            "la nuit, je compte les mouettes pour m'endormir. Un garde, oui."
+        ),
+        "commun" to listOf(
+            "j'ai peur du noir du donjon. La, c'est dit.",
+            "je parle aux mouettes. ELLES, au moins, ecoutent.",
+            "mon plus grand reve ? Voir ce qu'il y a DERRIERE la mer."
+        )
+    ) }
+
+    /** Ce que le village raconte sur les exploits du heros. */
+    private val FAITS_LIGNES: Map<String, String> by lazy { mapOf(
+        "heros" to "Alors c'est TOI qui as vaincu le monstre du donjon ! {admiration} !",
+        "slip" to "C'est toi qui as repeche le slip de Pierre ?! {admiration} ! Quelle epopee !",
+        "peche" to "On dit que tu peches comme un vieux loup de mer, maintenant !",
+        "tags" to "J'ai vu les tags du sous-sol... c'est toi, hein ? Je ne dirai rien. Beau travail.",
+        "magie" to "Il parait que le mage de l'arbre t'apprend la MAGIE ! Montre ! ... Non, pas ici, pas ici !",
+        "marin" to "On t'a vu RAMER vers l'ile lointaine ! Plus personne n'y allait depuis des lunes."
     ) }
 
     private val RX by lazy { Regex("\\{(\\w+)\\}") }
@@ -365,51 +480,251 @@ object VillagerAI {
      * Choisit la situation selon la memoire (le coeur de la mini-IA),
      * puis genere la replique. gameTime sert a mesurer "ca faisait longtemps".
      */
-    fun parler(p: Perso, gameTime: Float, bossVaincu: Boolean, r: Random): String {
-        val m = p.memoire
-        val depuis = gameTime - m.derniereRencontre
-        val situation = when {
-            m.bouscule > 0 && p.grognon > 0.4f -> { m.bouscule--; "bouscule" }
-            bossVaincu && !m.connaitExploits -> { m.connaitExploits = true; "heros" }
-            m.rencontres == 0 -> "premiere"
-            depuis > 180f -> "longtemps"
-            m.rencontres < 3 -> "retrouvailles"
-            else -> "habitue"
-        }
-        m.rencontres++
-        m.derniereRencontre = gameTime
+    fun parler(p: Perso, gameTime: Float, bossVaincu: Boolean, r: Random): String =
+        discuter(p, gameTime, if (bossVaincu) setOf("heros") else emptySet(), r).texte
 
-        // Un villageois bavard glisse parfois son sujet de metier a la place
-        val metierLignes = METIERS[p.metier] ?: emptyList()
-        val ligne = if (situation == "habitue" && metierLignes.isNotEmpty() &&
-            r.nextFloat() < 0.35f + p.bavard * 0.3f
-        ) {
-            metierLignes[r.nextInt(metierLignes.size)]
-        } else {
-            val pool = G[situation] ?: G["habitue"]!!
-            expanser(pool[r.nextInt(pool.size)], r)
+    // ------------------------------------------------ la CONVERSATION
+
+    const val EF_INTERESSE = 0    // "et ensuite ?" / "un potin ?"
+    const val EF_MOQUE = 1        // moquerie (memorisee !)
+    const val EF_BYE = 2          // prendre conge
+    const val EF_EXCUSE = 3       // demander pardon
+    const val EF_COMPLIMENT = 4   // flatter (la relation grandit)
+    const val EF_PROMESSE = 5     // jurer le secret (grande confiance)
+    const val EF_TRAHISON = 6     // menacer de tout repeter
+    const val EF_METIER = 7       // parle-moi de ton metier
+    const val EF_SECRET = 8       // confie-moi un secret (confidents seulement)
+
+    class Reponse(val texte: String, val effet: Int)
+    class Replique(val texte: String, val reponses: List<Reponse>)
+
+    /** Les reponses proposees selon le TYPE de la replique entendue. */
+    private fun reponsesPour(type: String, p: Perso, r: Random): List<Reponse> {
+        fun pick(vararg v: String) = v[r.nextInt(v.size)]
+        val bye = Reponse(pick("Bonne journee !", "A plus tard !", "Faut que j'y aille."), EF_BYE)
+        return when (type) {
+            "premiere" -> listOf(
+                Reponse(pick("Je viens du portail.", "Un aventurier, tout simplement."), EF_INTERESSE),
+                Reponse("Ca ne te regarde pas.", EF_MOQUE),
+                bye
+            )
+            "hostile" -> listOf(
+                Reponse(pick("Pardon pour tout...", "Faisons la paix, tu veux ?"), EF_EXCUSE),
+                Reponse("Toujours aussi aimable !", EF_MOQUE),
+                Reponse("Je repasse plus tard.", EF_BYE)
+            )
+            "potin" -> listOf(
+                Reponse(pick("Et ensuite ?!", "Raconte la suite !!"), EF_INTERESSE),
+                Reponse(pick("Je n'y crois pas une seconde.", "N'importe quoi..."), EF_MOQUE),
+                bye
+            )
+            "potin_suite" -> listOf(
+                Reponse(pick("Incroyable !", "Quelle histoire !"), EF_COMPLIMENT),
+                Reponse("Tu inventes TOUT !", EF_MOQUE),
+                Reponse(pick("Motus, promis.", "Ca restera entre nous."), EF_PROMESSE)
+            )
+            "metier" -> listOf(
+                Reponse(pick("Fascinant, continue !", "Et ca marche ?"), EF_METIER),
+                Reponse("(baillement discret)", EF_MOQUE),
+                bye
+            )
+            "colere" -> listOf(
+                Reponse(pick("Pardon, pardon !!", "Je retire, je retire !"), EF_EXCUSE),
+                Reponse("C'etait pour rire...", EF_MOQUE),
+                Reponse("(s'eclipser discretement)", EF_BYE)
+            )
+            "secret" -> listOf(
+                Reponse(pick("Motus et bouche cousue.", "Ta confiance m'honore."), EF_PROMESSE),
+                Reponse("HA ! Tout le village le saura !", EF_TRAHISON),
+                Reponse("Merci de me faire confiance.", EF_COMPLIMENT)
+            )
+            "fait" -> listOf(
+                Reponse(pick("Tout est vrai. TOUT.", "C'est bien moi !"), EF_COMPLIMENT),
+                Reponse(pick("On exagere beaucoup...", "Les nouvelles vont vite !"), EF_INTERESSE),
+                bye
+            )
+            else -> {   // papotage libre : selon la relation, le secret se debloque
+                val base = mutableListOf(
+                    Reponse(pick("Raconte-moi un potin !", "Quoi de neuf au village ?"), EF_INTERESSE),
+                    Reponse(pick("Parle-moi de ton metier.", "Et le travail, ca va ?"), EF_METIER)
+                )
+                if (p.memoire.relation() >= 6) {
+                    base.add(Reponse("Confie-moi un secret...", EF_SECRET))
+                } else {
+                    base.add(bye)
+                }
+                base
+            }
         }
-        return ligne
+    }
+
+    /** Fabrique une replique en evitant de radoter. */
+    private fun fab(p: Perso, texteBrut: String, type: String, r: Random): Replique {
+        val m = p.memoire
+        var t = texteBrut
+        if (t == m.derniereLigne && t.length < 80) t = "$t ... Oui, je me repete. L'age !"
+        m.derniereLigne = texteBrut
+        return Replique(t, reponsesPour(type, p, r))
+    }
+
+    /** Un nouveau potin jamais raconte a CE heros (memoire !). */
+    private fun potinNouveau(p: Perso, r: Random): Replique {
+        val m = p.memoire
+        var prefixe = ""
+        if (m.racontes.size >= POTINS.size) {
+            m.racontes.clear()
+            prefixe = "Je te les ai TOUS racontes ! Tant pis, je recommence : "
+        }
+        var k = r.nextInt(POTINS.size)
+        var essais = 0
+        while (k in m.racontes && essais < 16) { k = r.nextInt(POTINS.size); essais++ }
+        m.racontes.add(k)
+        m.potinEnCours = POTINS[k].second
+        m.dernierSujet = "des potins"
+        return fab(p, prefixe + expanser(POTINS[k].first, r), "potin", r)
+    }
+
+    /** Une ligne de metier, avec la memoire du sujet. */
+    private fun ligneMetier(p: Perso, r: Random): Replique {
+        val lignes = METIERS[p.metier] ?: listOf("Le travail, toujours le travail.")
+        p.memoire.dernierSujet = "son metier"
+        return fab(p, lignes[r.nextInt(lignes.size)], "metier", r)
     }
 
     /**
-     * Le heros REPOND (choix multiple) : 0 = relancer, 1 = se moquer,
-     * 2 = prendre conge. La moquerie s'accumule dans la memoire (vexe) et,
-     * selon le caractere, finit en vraie COLERE.
+     * LE COEUR DE LA DISCUSSION : la premiere replique quand on aborde
+     * quelqu'un. Elle depend de la memoire (relation, exploits du heros,
+     * dernier sujet) et propose des reponses CONTEXTUELLES.
      */
-    fun repondre(p: Perso, choix: Int, r: Random): String {
+    fun discuter(p: Perso, gameTime: Float, faits: Set<String>, r: Random): Replique {
         val m = p.memoire
-        return when (choix) {
-            0 -> {
-                m.vexe = (m.vexe - 1).coerceAtLeast(0)
-                expanser(G["relance"]!!.let { it[r.nextInt(it.size)] }, r)
-            }
-            1 -> {
+        val depuis = gameTime - m.derniereRencontre
+        m.rencontres++
+        m.derniereRencontre = gameTime
+
+        // 1. Un exploit du heros dont il n'a pas encore parle ? Priorite !
+        val nouveaux = faits.filter { it !in m.faitsDits }
+        if (nouveaux.isNotEmpty() && r.nextFloat() < 0.65f) {
+            val f = nouveaux[r.nextInt(nouveaux.size)]
+            m.faitsDits.add(f)
+            if (f == "heros") m.connaitExploits = true
+            m.dernierSujet = "tes exploits"
+            return fab(p, expanser(FAITS_LIGNES[f] ?: "{admiration} !", r), "fait", r)
+        }
+
+        // 2. La situation, selon la memoire et la RELATION
+        val rel = m.relation()
+        val situation = when {
+            m.bouscule > 0 && p.grognon > 0.4f -> { m.bouscule--; "bouscule" }
+            rel <= -3 -> "hostile"
+            m.rencontres <= 1 -> "premiere"
+            depuis > 180f -> "longtemps"
+            rel >= 6 -> "confident_salut"
+            m.rencontres < 3 -> "retrouvailles"
+            else -> "habitue"
+        }
+
+        // Il se souvient du dernier sujet, parfois
+        if (situation == "habitue" && m.dernierSujet.isNotEmpty() && r.nextFloat() < 0.3f) {
+            val rappel = expanser(G["rappel"]!![r.nextInt(G["rappel"]!!.size)], r)
+                .replace("{dernier_sujet}", m.dernierSujet)
+            val suite = potinNouveau(p, r)
+            return Replique("$rappel ${suite.texte}", suite.reponses)
+        }
+
+        // Un bavard glisse son metier
+        if (situation == "habitue" && r.nextFloat() < 0.35f + p.bavard * 0.3f) {
+            return ligneMetier(p, r)
+        }
+
+        val type = when (situation) {
+            "premiere" -> "premiere"
+            "hostile" -> "hostile"
+            else -> "libre"
+        }
+        val pool = G[situation] ?: G["habitue"]!!
+        return fab(p, expanser(pool[r.nextInt(pool.size)], r), type, r)
+    }
+
+    /** Le heros a choisi une reponse : la conversation CONTINUE. */
+    fun reagir(p: Perso, effet: Int, r: Random): Replique {
+        val m = p.memoire
+        return when (effet) {
+            EF_INTERESSE -> if (m.potinEnCours.isNotEmpty()) {
+                val suite = m.potinEnCours
+                m.potinEnCours = ""
+                fab(p, expanser(suite, r), "potin_suite", r)
+            } else potinNouveau(p, r)
+            EF_METIER -> ligneMetier(p, r)
+            EF_MOQUE -> {
                 m.vexe = (m.vexe + 1).coerceAtMost(4)
+                m.moqueries = (m.moqueries + 1).coerceAtMost(9)
                 val pool = if (m.vexe >= 2 || p.grognon > 0.7f) G["furieux"]!! else G["vexe"]!!
-                expanser(pool[r.nextInt(pool.size)], r)
+                fab(p, expanser(pool[r.nextInt(pool.size)], r), "colere", r)
             }
-            else -> expanser(G["aurevoir"]!!.let { it[r.nextInt(it.size)] }, r)
+            EF_EXCUSE -> {
+                m.vexe = 0
+                fab(p, expanser(G["apaise"]!![r.nextInt(G["apaise"]!!.size)], r), "libre", r)
+            }
+            EF_COMPLIMENT -> {
+                m.confidences = (m.confidences + 1).coerceAtMost(30)
+                fab(p, expanser(G["flatte"]!![r.nextInt(G["flatte"]!!.size)], r), "libre", r)
+            }
+            EF_PROMESSE -> {
+                m.confidences = (m.confidences + 2).coerceAtMost(30)
+                fab(p, expanser(G["merci_confiance"]!![r.nextInt(G["merci_confiance"]!!.size)], r), "libre", r)
+            }
+            EF_TRAHISON -> {
+                m.moqueries = (m.moqueries + 2).coerceAtMost(9)
+                m.vexe = 3
+                fab(p, expanser(G["furieux"]!![r.nextInt(G["furieux"]!!.size)], r), "colere", r)
+            }
+            EF_SECRET -> {
+                val pool = AVEUX[p.metier] ?: AVEUX["commun"]!!
+                val aveu = pool[r.nextInt(pool.size)]
+                m.dernierSujet = "un secret"
+                fab(p, "Bon... a TOI je peux le dire : $aveu", "secret", r)
+            }
+            else -> {   // EF_BYE : au revoir, gentil ou glacial selon la relation
+                val pool = if (m.relation() <= -3 || m.vexe >= 2)
+                    listOf("C'est ca, file.", "Bon vent. Loin.", "Enfin une bonne idee.")
+                else G["aurevoir"]!!.map { expanser(it, r) }
+                Replique(pool[r.nextInt(pool.size)], emptyList())
+            }
+        }
+    }
+
+    /** Les choix generiques quand le jeu a lui-meme redige la replique. */
+    fun choixLibres(p: Perso, r: Random): List<Reponse> = reponsesPour("libre", p, r)
+
+    // ------------------------------------------ persistance des souvenirs
+
+    /** Serialise les souvenirs de tous (sauvegarde entre les sessions). */
+    fun serialiser(persos: List<Perso>): String = persos.joinToString(";") { pp ->
+        val m = pp.memoire
+        listOf(
+            m.rencontres, m.bouscule, m.vexe, m.confidences, m.moqueries,
+            if (m.connaitExploits) 1 else 0,
+            m.racontes.joinToString("|"),
+            m.faitsDits.joinToString("|")
+        ).joinToString(",")
+    }
+
+    /** Restaure les souvenirs sauvegardes (dans l'ordre des persos). */
+    fun restaurer(persos: List<Perso>, data: String?) {
+        if (data.isNullOrEmpty()) return
+        val parts = data.split(";")
+        for (i in persos.indices) {
+            val f = parts.getOrNull(i)?.split(",") ?: continue
+            val m = persos[i].memoire
+            m.rencontres = f.getOrNull(0)?.toIntOrNull() ?: 0
+            m.bouscule = f.getOrNull(1)?.toIntOrNull() ?: 0
+            m.vexe = f.getOrNull(2)?.toIntOrNull() ?: 0
+            m.confidences = f.getOrNull(3)?.toIntOrNull() ?: 0
+            m.moqueries = f.getOrNull(4)?.toIntOrNull() ?: 0
+            m.connaitExploits = f.getOrNull(5) == "1"
+            f.getOrNull(6)?.split("|")?.forEach { it.toIntOrNull()?.let { k -> m.racontes.add(k) } }
+            f.getOrNull(7)?.split("|")?.forEach { if (it.isNotEmpty()) m.faitsDits.add(it) }
         }
     }
 

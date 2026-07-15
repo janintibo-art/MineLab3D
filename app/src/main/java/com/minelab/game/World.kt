@@ -581,7 +581,8 @@ class World(
             2 -> 3        // forge : sol de pierre
             3 -> 2        // maison anarchiste : sol sombre et crade
             4 -> 5        // cabane d'alchimiste
-            5 -> 6        // le punk club
+            5 -> 31       // le punk club : plancher clair (contraste avec les punks !)
+                          // (hfloor6 etait une texture de MUR a colombages - bug corrige)
             else -> 1     // chaumiere : parquet
         }
         for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {

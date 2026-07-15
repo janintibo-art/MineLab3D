@@ -33,9 +33,35 @@ object VillagerAI {
         var derniereLigne = ""        // anti-radotage
         val racontes = HashSet<Int>() // les potins deja racontes a CE heros
         val faitsDits = HashSet<String>()  // les exploits du heros deja commentes
+        // --- HUMEUR du moment (derive avec le temps et les evenements) ---
+        var humeur = 0f               // -1 maussade .. +1 radieux (0 = neutre)
+        var humeurRaison = ""         // pourquoi il est comme ca (colore le dialogue)
+        var humeurT = 0f              // horloge : quand l'humeur a change
+        // --- RUMEURS : les on-dit qu'il a entendus et peut colporter ---
+        val rumeursSues = HashSet<Int>()   // index de rumeurs connues
+        val rumeursDites = HashSet<Int>()  // deja colportees au heros
 
         /** Le niveau de relation : les moqueries pesent double. */
         fun relation() = confidences - moqueries * 2
+
+        /** L'humeur se calme doucement vers le neutre avec le temps. */
+        fun majHumeur(gameTime: Float) {
+            val dt = gameTime - humeurT
+            humeurT = gameTime
+            if (dt > 0f && humeur != 0f) {
+                val decroit = dt / 90f            // ~90s pour revenir a neutre
+                humeur = if (humeur > 0) (humeur - decroit).coerceAtLeast(0f)
+                         else (humeur + decroit).coerceAtMost(0f)
+                if (humeur == 0f) humeurRaison = ""
+            }
+        }
+
+        fun pousserHumeur(delta: Float, raison: String, gameTime: Float) {
+            majHumeur(gameTime)
+            humeur = (humeur + delta).coerceIn(-1f, 1f)
+            if (raison.isNotEmpty()) humeurRaison = raison
+            humeurT = gameTime
+        }
     }
 
     // ------------------------------------------------------------ personnalites
@@ -214,6 +240,18 @@ object VillagerAI {
         ),
         "moi_meme" to listOf("moi", "quelqu'un de mon age", "un honnete artisan", "les gens d'ici"),
         "boude" to listOf("Je boude.", "Na.", "Je ne dis plus rien.", "Tu me vexes, la."),
+        "humeur_bonne" to listOf(
+            "Ahh, quelle belle journee ! Tout va bien pour moi.",
+            "Je suis d'excellente humeur, tiens ! Ca se voit, non ?",
+            "La vie est belle aujourd'hui ! {question_sympa} ?",
+            "Je pourrais chanter ! Bon, je m'abstiens, pour tes oreilles."
+        ),
+        "humeur_mauvaise" to listOf(
+            "Pff. Journee pourrie. Ne le prends pas pour toi.",
+            "Je suis d'une humeur de chien, alors fais vite.",
+            "Rien ne va aujourd'hui. RIEN. {grognement}.",
+            "Laisse-moi ronchonner en paix, veux-tu ?"
+        ),
         "hostile" to listOf(
             "Ah. Toi.",
             "{grognement}... qu'est-ce que tu veux ENCORE ?",
@@ -893,11 +931,21 @@ object VillagerAI {
      * quelqu'un. Elle depend de la memoire (relation, exploits du heros,
      * dernier sujet) et propose des reponses CONTEXTUELLES.
      */
-    fun discuter(p: Perso, gameTime: Float, faits: Set<String>, r: Random): Replique {
+    fun discuter(p: Perso, gameTime: Float, faits: Set<String>, r: Random): Replique =
+        discuter(p, gameTime, faits, r, 0)
+
+    fun discuter(p: Perso, gameTime: Float, faits: Set<String>, r: Random, idxPerso: Int): Replique {
         val m = p.memoire
         val depuis = gameTime - m.derniereRencontre
+        m.majHumeur(gameTime)
         m.rencontres++
         m.derniereRencontre = gameTime
+
+        // 0. Une RUMEUR fraiche a colporter ? (le village jase)
+        val idxRum = rumeurPour(p, idxPerso, r)
+        if (idxRum >= 0 && r.nextFloat() < 0.5f) {
+            return colporter(p, idxRum, r)
+        }
 
         // 1. Un exploit du heros dont il n'a pas encore parle ? Priorite !
         val nouveaux = faits.filter { it !in m.faitsDits }
@@ -907,6 +955,14 @@ object VillagerAI {
             if (f == "heros") m.connaitExploits = true
             m.dernierSujet = "tes exploits"
             return fab(p, expanser(FAITS_LIGNES[f] ?: "{admiration} !", r), "fait", r)
+        }
+
+        // 1b. L'HUMEUR du moment s'exprime, parfois (avant le papotage normal)
+        if (abs(m.humeur) > 0.45f && m.rencontres > 1 && r.nextFloat() < 0.4f) {
+            val ton = if (m.humeur > 0) G["humeur_bonne"]!! else G["humeur_mauvaise"]!!
+            var txt = expanser(ton[r.nextInt(ton.size)], r)
+            if (m.humeurRaison.isNotEmpty()) txt = "$txt (${m.humeurRaison})"
+            return fab(p, txt, "libre", r)
         }
 
         // 2. La situation, selon la memoire et la RELATION
@@ -944,8 +1000,18 @@ object VillagerAI {
     }
 
     /** Le heros a choisi une reponse : la conversation CONTINUE. */
-    fun reagir(p: Perso, effet: Int, r: Random): Replique {
+    fun reagir(p: Perso, effet: Int, r: Random): Replique = reagir(p, effet, r, 0f)
+
+    fun reagir(p: Perso, effet: Int, r: Random, gameTime: Float): Replique {
         val m = p.memoire
+        // Les emotions marquent l'humeur du moment
+        when (effet) {
+            EF_MOQUE -> m.pousserHumeur(-0.5f, "tu t'es moque de moi", gameTime)
+            EF_TRAHISON -> m.pousserHumeur(-0.7f, "tu m'as trahi", gameTime)
+            EF_COMPLIMENT -> m.pousserHumeur(0.4f, "tu as ete gentil", gameTime)
+            EF_PROMESSE -> m.pousserHumeur(0.5f, "tu as gagne ma confiance", gameTime)
+            EF_EXCUSE -> m.pousserHumeur(0.3f, "", gameTime)
+        }
         return when (effet) {
             EF_INTERESSE -> if (m.potinEnCours.isNotEmpty()) {
                 val suite = m.potinEnCours
@@ -994,6 +1060,72 @@ object VillagerAI {
     /** Les choix generiques quand le jeu a lui-meme redige la replique. */
     fun choixLibres(p: Perso, r: Random): List<Reponse> = reponsesPour("libre", p, r)
 
+    // ============================================================ LES RUMEURS
+
+    /**
+     * Le village a une memoire collective : chaque evenement cree une RUMEUR,
+     * qui nait chez un temoin puis se propage de bouche a oreille. Les PNJ la
+     * colportent au heros ("j'ai entendu dire que...") longtemps apres.
+     */
+    class Rumeur(val texte: String, val naissance: Float, val positif: Boolean)
+
+    /** Toutes les rumeurs vivantes du village (index = identifiant stable). */
+    private val rumeurs = ArrayList<Rumeur>()
+
+    /** Combien de villageois "connaissent" chaque rumeur (propagation). */
+    private val rumeurPropagation = ArrayList<Int>()
+
+    /**
+     * Cree une rumeur a partir d'un evenement du heros. Elle demarre connue
+     * d'un seul temoin (propagation=1) et s'etend a chaque pas de simulation.
+     * cle = evenement unique (evite les doublons).
+     */
+    private val rumeursVues = HashSet<String>()
+    fun creerRumeur(cle: String, texte: String, positif: Boolean, gameTime: Float) {
+        if (cle in rumeursVues) return
+        rumeursVues.add(cle)
+        rumeurs.add(Rumeur(texte, gameTime, positif))
+        rumeurPropagation.add(1)
+        if (rumeurs.size > 24) {            // on oublie les plus vieilles
+            rumeurs.removeAt(0); rumeurPropagation.removeAt(0)
+        }
+    }
+
+    /**
+     * Fait vivre les rumeurs : elles se propagent (de plus en plus de gens les
+     * connaissent) et les plus vieilles s'estompent. A appeler regulierement.
+     */
+    fun propagerRumeurs(nbVillageois: Int) {
+        for (i in rumeurPropagation.indices) {
+            if (rumeurPropagation[i] < nbVillageois) rumeurPropagation[i]++
+        }
+    }
+
+    /** Une rumeur que ce PNJ connait (assez propagee) et n'a pas encore dite. */
+    private fun rumeurPour(p: Perso, idxPerso: Int, r: Random): Int {
+        val m = p.memoire
+        for (i in rumeurs.indices) {
+            // le PNJ "connait" la rumeur si elle s'est assez propagee OU s'il en est proche
+            val connue = rumeurPropagation[i] > (idxPerso % 5) + 1
+            if (connue && i !in m.rumeursDites) return i
+        }
+        return -1
+    }
+
+    /** Genere la replique "on-dit" et marque la rumeur comme colportee. */
+    private fun colporter(p: Perso, idxRumeur: Int, r: Random): Replique {
+        p.memoire.rumeursDites.add(idxRumeur)
+        p.memoire.dernierSujet = "cette rumeur"
+        val ouvertures = listOf(
+            "Dis donc, j'ai entendu dire que", "Le village murmure que",
+            "On raconte que", "Parait-il que", "Entre nous : on dit que"
+        )
+        val txt = ouvertures[r.nextInt(ouvertures.size)] + " " + rumeurs[idxRumeur].texte
+        return fab(p, txt, if (rumeurs[idxRumeur].positif) "fait" else "potin", r)
+    }
+
+    fun nbRumeurs() = rumeurs.size
+
     // ------------------------------------------ persistance des souvenirs
 
     /** Serialise les souvenirs de tous (sauvegarde entre les sessions). */
@@ -1003,7 +1135,10 @@ object VillagerAI {
             m.rencontres, m.bouscule, m.vexe, m.confidences, m.moqueries,
             if (m.connaitExploits) 1 else 0,
             m.racontes.joinToString("|"),
-            m.faitsDits.joinToString("|")
+            m.faitsDits.joinToString("|"),
+            "%.2f".format(m.humeur).replace(',', '.'),
+            m.humeurRaison.replace(",", " ").replace(";", " ").replace("|", " "),
+            m.rumeursDites.joinToString("|")
         ).joinToString(",")
     }
 
@@ -1022,8 +1157,14 @@ object VillagerAI {
             m.connaitExploits = f.getOrNull(5) == "1"
             f.getOrNull(6)?.split("|")?.forEach { it.toIntOrNull()?.let { k -> m.racontes.add(k) } }
             f.getOrNull(7)?.split("|")?.forEach { if (it.isNotEmpty()) m.faitsDits.add(it) }
+            m.humeur = f.getOrNull(8)?.toFloatOrNull() ?: 0f
+            m.humeurRaison = f.getOrNull(9) ?: ""
+            f.getOrNull(10)?.split("|")?.forEach { it.toIntOrNull()?.let { k -> m.rumeursDites.add(k) } }
         }
     }
+
+    /** L'humeur d'un PNJ, pour l'afficher (icone au-dessus de la tete). */
+    fun humeurDe(p: Perso): Float = p.memoire.humeur
 
     /** Petit mot lance sans qu'on lui parle (les bavards seulement). */
     fun marmonner(p: Perso, r: Random): String? {

@@ -1055,6 +1055,7 @@ class GameView(context: Context) : View(context) {
             slipOwned = true
             audio.play("win")
             showMsg("ENORME PRISE !!! ... LE SLIP A PIERRE ! Rapportez-le-lui !")
+            noteRumeur("slip", "le heros a repeche le fameux slip porte-bonheur de Pierre !", true)
             saveGame()
             return
         }
@@ -1168,6 +1169,11 @@ class GameView(context: Context) : View(context) {
 
         updateMobs(dt)
         updateWalkers(dt)
+        rumeurT += dt
+        if (rumeurT > 8f) {
+            rumeurT = 0f
+            if (villagers.isNotEmpty()) try { VillagerAI.propagerRumeurs(villagers.size) } catch (t: Throwable) { }
+        }
         // Les bavards marmonnent parfois tout seuls
         if (dialogueT <= 0f && time % 7f < dt && villagers.isNotEmpty()) {
             val near = walkers.filter { it.kind == 0 && hypot(it.x - fx, it.y - fy) < 6f && it.talk <= 0f }
@@ -1360,6 +1366,7 @@ class GameView(context: Context) : View(context) {
                     world.bossVictory()
                     audio.play("win")
                     showMsg("LE BOSS EST VAINCU ! La porte scellee s'ouvre au nord...")
+                    noteRumeur("boss", "le heros a terrasse le monstre du donjon a mains nues !", true)
                     saveGame()
                 }
             } else if (world.mobsSpawned && !world.mobsDead) {
@@ -1831,6 +1838,14 @@ class GameView(context: Context) : View(context) {
     // ------------------------------------------------ la vraie discussion
 
     /** Ce que le village SAIT (ou saura bientot) des exploits du heros. */
+    private var rumeurT = 0f            // horloge de propagation des rumeurs
+
+    /** Cree une rumeur dans le village (evenement notable du heros). */
+    private fun noteRumeur(cle: String, texte: String, positif: Boolean) {
+        if (villagers.isEmpty()) return
+        try { VillagerAI.creerRumeur(cle, texte, positif, time) } catch (t: Throwable) { }
+    }
+
     private fun heroFaits(): Set<String> {
         val f = HashSet<String>()
         if (world.bossDefeated) f.add("heros")
@@ -1930,14 +1945,17 @@ class GameView(context: Context) : View(context) {
     }
 
     /** Le Perso (VillagerAI) derriere un walker, s'il en a un. */
-    private fun persoFor(w: Walker): VillagerAI.Perso? = when (w.kind) {
-        0 -> if (villagers.isEmpty()) null else villagers.getOrNull((w.id - 1) % villagers.size)
-        2 -> villagers.getOrNull(10 + w.id)
-        4 -> villagers.getOrNull(17 + w.id)
-        5 -> villagers.getOrNull(28)
-        6 -> villagers.getOrNull(28 + w.id)
-        7 -> villagers.getOrNull(35 + w.id)
-        else -> null
+    private fun persoFor(w: Walker): VillagerAI.Perso? = villagers.getOrNull(persoIdxFor(w))
+
+    /** Index du Perso dans la liste villagers (ou -1). */
+    private fun persoIdxFor(w: Walker): Int = when (w.kind) {
+        0 -> if (villagers.isEmpty()) -1 else (w.id - 1) % villagers.size
+        2 -> 10 + w.id
+        4 -> 17 + w.id
+        5 -> 28
+        6 -> 28 + w.id
+        7 -> 35 + w.id
+        else -> -1
     }
 
     /** Pose la bulle sur ce walker (position, duree, orientation). */
@@ -1991,7 +2009,7 @@ class GameView(context: Context) : View(context) {
             val p = persoFor(w)
             dialogue = try {
                 if (p != null) {
-                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd, persoIdxFor(w))
                     offerReplique(rep, w)
                     rep.texte
                 } else "Mon meilleur eleve ! Snif. FIERTE."
@@ -2028,7 +2046,7 @@ class GameView(context: Context) : View(context) {
                     return
                 }
                 val effet = dlgReponses.getOrNull(k)?.effet ?: VillagerAI.EF_BYE
-                val rep = try { VillagerAI.reagir(p, effet, npcRnd) } catch (t: Throwable) {
+                val rep = try { VillagerAI.reagir(p, effet, npcRnd, time) } catch (t: Throwable) {
                     VillagerAI.Replique("...", emptyList())
                 }
                 dialogue = rep.texte
@@ -2044,7 +2062,7 @@ class GameView(context: Context) : View(context) {
                 if (k >= dlgElems.size) {   // "Juste discuter"
                     val p = persoFor(w) ?: return
                     dialogue = try {
-                        val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                        val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd, persoIdxFor(w))
                         offerReplique(rep, w)
                         rep.texte
                     } catch (t: Throwable) { "Les runes, tout ca..." }
@@ -2065,6 +2083,7 @@ class GameView(context: Context) : View(context) {
             2 -> {   // reponse au cours
                 if (k == dlgCorrect) {
                     spellKnown[dlgElem] = true
+                    noteRumeur("magie${dlgElem}", "le mage de l'arbre enseigne la magie au heros, il parait !", true)
                     spellDemo = dlgElem
                     spellDemoT = 1.2f
                     audio.play("win")
@@ -2184,6 +2203,7 @@ class GameView(context: Context) : View(context) {
                 shopDiscount = (shopDiscount - 5).coerceAtLeast(0)
                 audio.play("error")
                 shopSay("\"Tu me VEXES ! Les prix remontent, tiens !\"")
+                noteRumeur("vexeMarchand${shopMerchant}", "le heros a essaye d'arnaquer un pauvre marchand !", false)
             }
         }
     }
@@ -2240,7 +2260,7 @@ class GameView(context: Context) : View(context) {
                     } catch (t: Throwable) { "No futur, l'ami." }
                 }
             } else questDialogue(w.id) ?: (try {
-                val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd, persoIdxFor(w))
                 if (p.nom != "Kaos") offerReplique(rep, w)
                 rep.texte
             } catch (t: Throwable) {
@@ -2267,7 +2287,7 @@ class GameView(context: Context) : View(context) {
             if (idx2 < villagers.size) {
                 val p2 = villagers[idx2]
                 dialogue = try {
-                    val rep = VillagerAI.discuter(p2, time, heroFaits(), npcRnd)
+                    val rep = VillagerAI.discuter(p2, time, heroFaits(), npcRnd, persoIdxFor(w))
                     offerReplique(rep, w)
                     rep.texte
                 } catch (t: Throwable) { "Oi ! Punk's not dead." }
@@ -2285,7 +2305,7 @@ class GameView(context: Context) : View(context) {
             val p = persoFor(w)
             dialogue = try {
                 if (p != null) {
-                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd)
+                    val rep = VillagerAI.discuter(p, time, heroFaits(), npcRnd, persoIdxFor(w))
                     offerReplique(rep, w)
                     rep.texte
                 } else "Sante !"
@@ -2303,7 +2323,7 @@ class GameView(context: Context) : View(context) {
             if (idx3 < villagers.size) {
                 val p3 = villagers[idx3]
                 dialogue = try {
-                    val rep = VillagerAI.discuter(p3, time, heroFaits(), npcRnd)
+                    val rep = VillagerAI.discuter(p3, time, heroFaits(), npcRnd, persoIdxFor(w))
                     offerReplique(rep, w)
                     rep.texte
                 } catch (t: Throwable) { "Pour la guilde !" }
@@ -2739,6 +2759,7 @@ class GameView(context: Context) : View(context) {
             return
         }
         secretLooted.add(chestC)
+        noteRumeur("cache${chestC}", "quelqu'un a trouve un tresor cache sous une dalle du donjon...", true)
         val loot = 80 + npcRnd.nextInt(70)
         gainGold(loot)
         audio.play("chest")
@@ -4305,7 +4326,60 @@ class GameView(context: Context) : View(context) {
             val size = if (wk.kind == 1) tile * 1.25f else tile * 1.9f
             val lift = if (wk.kind == 1) tile * 0.14f else tile * 0.42f
             drawSprite(canvas, set[wk.dir.coerceIn(0, 3)], cxx, cyy - lift - bob, size)
+            // Petite bulle d'humeur au-dessus des personnages a caractere
+            if (wk.kind != 1 && wk.kind != 3) {
+                val pIdx = persoIdxFor(wk)
+                val p = villagers.getOrNull(pIdx)
+                if (p != null) {
+                    val hum = try { VillagerAI.humeurDe(p) } catch (t: Throwable) { 0f }
+                    if (abs(hum) > 0.45f && abs(wk.x - camX) < 9f && abs(wk.y - camY) < 9f) {
+                        drawMoodIcon(canvas, cxx + tile * 0.45f, cyy - lift - bob - tile * 0.75f, hum)
+                    }
+                }
+            }
         }
+    }
+
+    /** Une pastille d'humeur : soleil (content) ou nuage grognon. */
+    private fun drawMoodIcon(canvas: Canvas, cx: Float, cy: Float, hum: Float) {
+        val r = tile * 0.16f
+        val bob = sin(time * 3f) * tile * 0.03f
+        val yy = cy + bob
+        paint.style = Paint.Style.FILL
+        if (hum > 0f) {
+            // soleil jaune
+            paint.color = Color.rgb(255, 210, 70)
+            canvas.drawCircle(cx, yy, r, paint)
+            paint.strokeWidth = tile * 0.025f
+            paint.style = Paint.Style.STROKE
+            for (k in 0 until 8) {
+                val a = k * (Math.PI / 4).toFloat() + time
+                canvas.drawLine(
+                    cx + cos(a) * r * 1.3f, yy + sin(a) * r * 1.3f,
+                    cx + cos(a) * r * 1.7f, yy + sin(a) * r * 1.7f, paint
+                )
+            }
+            paint.style = Paint.Style.FILL
+            // sourire
+            paint.color = Color.rgb(120, 80, 20)
+            canvas.drawArc(cx - r * 0.5f, yy - r * 0.3f, cx + r * 0.5f, yy + r * 0.5f, 20f, 140f, false, paint)
+        } else {
+            // nuage gris + eclair d'humeur
+            paint.color = Color.rgb(120, 125, 135)
+            canvas.drawCircle(cx - r * 0.4f, yy, r * 0.7f, paint)
+            canvas.drawCircle(cx + r * 0.4f, yy, r * 0.7f, paint)
+            canvas.drawCircle(cx, yy - r * 0.4f, r * 0.75f, paint)
+            paint.color = Color.rgb(90, 95, 105)
+            canvas.drawRect(cx - r, yy, cx + r, yy + r * 0.4f, paint)
+            paint.color = Color.rgb(255, 220, 60)
+            val p2 = Path()
+            p2.moveTo(cx - r * 0.15f, yy + r * 0.3f)
+            p2.lineTo(cx + r * 0.2f, yy + r * 0.3f)
+            p2.lineTo(cx - r * 0.05f, yy + r * 0.95f)
+            p2.close()
+            canvas.drawPath(p2, paint)
+        }
+        paint.style = Paint.Style.FILL
     }
 
     /** La bulle de dialogue. */

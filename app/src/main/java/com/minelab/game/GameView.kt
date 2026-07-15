@@ -116,6 +116,8 @@ class GameView(context: Context) : View(context) {
     private var pendingReveal = -1
     private var pendingDisarm = -1
     private var pendingChest = false
+    private var pendingSecretChest = -1
+    private var secretReturnCell = -1        // ou remonter apres une cache
     private var pendingDoor = false
     private var pendingChest2 = false
     private var pendingChest3 = false
@@ -194,6 +196,12 @@ class GameView(context: Context) : View(context) {
         val elem: Int, val dir: Int, var life: Float, var t: Float = 0f, var hit: Boolean = false
     )
     private val bolts = ArrayList<Bolt>()
+    // --- systeme monetaire : les pieces d'or ---
+    private var gold = 0
+    private var goldAnim = 0f                          // petit flash a la recolte
+    // --- caches secretes : trappe cachee -> antichambre (monstres) -> coffre ---
+    private val secretFound = HashSet<Int>()           // caches deja decouvertes (cellule declencheur)
+    private val secretLooted = HashSet<Int>()          // coffres deja pilles
     private val sSpell = Array(4) { Array(4) { arrayOfNulls<Bitmap>(5) } }
     private val sTav: Array<Array<Bitmap>> = Array(7) { i ->
         val id = i + 1
@@ -287,6 +295,7 @@ class GameView(context: Context) : View(context) {
     private var lastTime = System.nanoTime()
 
     // Sprites
+    private val sCoin: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.coin)
     private val sChestClosed: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.chest_closed)
     private val sChestOpen: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.chest_open)
     private val sKey: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.key)
@@ -651,6 +660,7 @@ class GameView(context: Context) : View(context) {
         try { prefs.edit().remove("vmem").apply() } catch (t: Throwable) { }
         spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
         spellSel = -1; spellCd = 0f; spellPicker = false; bolts.clear()
+        gold = 0; goldAnim = 0f; secretFound.clear(); secretLooted.clear()
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
         petCount = 0; drinksDone = 0; clubVisited = false; swordSharp = false
@@ -759,6 +769,10 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("boat", onBoat)
         e.putInt("boatC", boatCell)
         e.putString("spells", spellKnown.joinToString("") { if (it) "1" else "0" })
+        e.putInt("gold", gold)
+        e.putInt("secR", secretReturnCell)
+        e.putString("secF", secretFound.joinToString(","))
+        e.putString("secL", secretLooted.joinToString(","))
         if (villagers.isNotEmpty()) {
             e.putString("vmem", try { VillagerAI.serialiser(villagers) } catch (t: Throwable) { "" })
         }
@@ -863,6 +877,10 @@ class GameView(context: Context) : View(context) {
         boatCell = prefs.getInt("boatC", -1)
         val sp = prefs.getString("spells", "") ?: ""
         for (k in spellKnown.indices) spellKnown[k] = k < sp.length && sp[k] == '1'
+        gold = prefs.getInt("gold", 0)
+        secretReturnCell = prefs.getInt("secR", -1)
+        (prefs.getString("secF", "") ?: "").split(",").forEach { it.toIntOrNull()?.let { c -> secretFound.add(c) } }
+        (prefs.getString("secL", "") ?: "").split(",").forEach { it.toIntOrNull()?.let { c -> secretLooted.add(c) } }
         swordSharp = prefs.getBoolean("sharp", false)
         slipOwned = prefs.getBoolean("slip", false)
         ticketOwned = prefs.getBoolean("ticket", false)
@@ -1075,6 +1093,7 @@ class GameView(context: Context) : View(context) {
             if (spellDemoT <= 0f) spellDemo = -1
         }
         spellCd = (spellCd - dt).coerceAtLeast(0f)
+        goldAnim = (goldAnim - dt).coerceAtLeast(0f)
         updateBolts(dt)
         // La peche : attente, touche ("CA MORD"), fenetre de ferrage
         if (fishing) {
@@ -1471,6 +1490,19 @@ class GameView(context: Context) : View(context) {
             clearPendings()
             showMsg("Vous descendez par la trappe... un couloir sombre s'etend devant vous.")
             saveGame()
+            return
+        }
+        // Une CACHE SECRETE ? Marcher sur la dalle suspecte revele la trappe
+        if (world.secretTraps.containsKey(i)) {
+            if (i !in secretFound) {
+                secretFound.add(i)
+                audio.play("push")
+                showMsg("Cette dalle sonne creux... une TRAPPE CACHEE s'ouvre sous vos pieds !")
+                saveGame()
+            }
+            // descente immediate vers l'antichambre
+            val entry = world.secretTraps[i]!!
+            enterSecretCache(entry)
             return
         }
         // Entree dans la salle du boss : la premiere vague se declenche
@@ -2226,6 +2258,12 @@ class GameView(context: Context) : View(context) {
             actLabel = if (n == 5) "ENTRER AU CLUB" else "ENTRER"
             return
         }
+        // 2a. Remonter d'une cache secrete (on est dans une antichambre)
+        if (world.secretRooms.containsKey(world.idx(hx, hy)) && secretReturnCell >= 0) {
+            actKind = 7; actData = secretReturnCell
+            actLabel = "REMONTER"
+            return
+        }
         // 2b. La barque : embarquer quand on est au bord, accoster quand on est en mer
         if (!onBoat && boatCell >= 0 &&
             abs(world.cx(boatCell) - hx) <= 1 && abs(world.cy(boatCell) - hy) <= 1
@@ -2352,6 +2390,7 @@ class GameView(context: Context) : View(context) {
             4 -> useVendor(actData)
             5 -> boardBoat(actData)
             6 -> disembark(actData)
+            7 -> leaveSecretCache(actData)
         }
     }
 
@@ -2437,7 +2476,8 @@ class GameView(context: Context) : View(context) {
 
     private fun clearPendings() {
         pendingReveal = -1; pendingDisarm = -1
-        pendingChest = false; pendingDoor = false
+        pendingChest = false
+        pendingSecretChest = -1; pendingDoor = false
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
         pendingMini = -1; pendingTorch = -1; pendingDoor3 = false; pendingRune = false
@@ -2489,6 +2529,74 @@ class GameView(context: Context) : View(context) {
         }
     }
 
+    /** Ajoute des pieces a la bourse, avec un petit flash. */
+    /** Descend dans une antichambre secrete : monstres gardiens + coffre d'or. */
+    private fun enterSecretCache(entry: Int) {
+        secretReturnCell = world.idx(hx, hy)   // on remontera ici
+        hx = world.cx(entry); hy = world.cy(entry)
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        // faire apparaitre les monstres gardiens (une seule fois, si coffre non pille)
+        val chestC = world.secretChests[entry] ?: -1
+        if (chestC >= 0 && chestC !in secretLooted) {
+            val guards = world.secretMonsters[entry]
+            if (guards != null && mobs.none { it.hp > 0 && world.secretRooms.containsKey(world.idx(it.x.toInt(), it.y.toInt())) }) {
+                for ((k, gc) in guards.withIndex()) {
+                    val hpv = 80 + k * 20
+                    val spr = (world.cx(entry) + k * 3) % 8   // varie dans la serie rigolote
+                    mobs.add(Mob(world.cx(gc) + 0.5f, world.cy(gc) + 0.5f, hpv, spr, hpv))
+                }
+            }
+            showMsg("Une salle secrete ! Des gardiens veillent sur un coffre... a l'attaque !")
+        } else {
+            showMsg("La salle secrete est vide, le coffre a deja ete pille.")
+        }
+        saveGame()
+    }
+
+    private fun gainGold(n: Int) {
+        gold += n
+        goldAnim = 1.4f
+        audio.play("key")
+    }
+
+    /** Remonte de l'antichambre secrete vers la dalle d'origine. */
+    private fun leaveSecretCache(cell: Int) {
+        hx = world.cx(cell); hy = world.cy(cell)
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        audio.play("push")
+        showMsg("Vous remontez par la trappe.")
+        saveGame()
+    }
+
+    /** Ouvre un coffre secret : gardiens d'abord, or ensuite. */
+    private fun openSecretChest(chestC: Int) {
+        if (chestC in secretLooted) { showMsg("Ce coffre est deja vide."); return }
+        val rid = world.secretRooms[chestC]
+        val guardsAlive = mobs.any { m ->
+            m.hp > 0 && world.secretRooms[world.idx(m.x.toInt(), m.y.toInt())] == rid
+        }
+        if (guardsAlive) {
+            showMsg("Les gardiens protegent le coffre ! Terrassez-les d'abord.")
+            return
+        }
+        secretLooted.add(chestC)
+        val loot = 80 + npcRnd.nextInt(70)
+        gainGold(loot)
+        audio.play("chest")
+        if (npcRnd.nextFloat() < 0.4f) {
+            hp = (hp + 30).coerceAtMost(100)
+            showMsg("TRESOR SECRET ! $loot pieces d'or + un elixir (+30 PV) !")
+        } else {
+            showMsg("TRESOR SECRET ! $loot pieces d'or scintillent dans le coffre !")
+        }
+    }
+
     private fun openChest() {
         if (!world.platesSolved()) {
             showMsg("Le coffre est scelle... Resolvez l'enigme de cette salle pour l'ouvrir.")
@@ -2501,7 +2609,8 @@ class GameView(context: Context) : View(context) {
         world.hasKey = true
         flagsLeft += 5
         keyAnim = 3f
-        showMsg("Le coffre s'ouvre... une CLE EN OR s'en echappe ! (+5 drapeaux)")
+        gainGold(50)
+        showMsg("Le coffre s'ouvre... une CLE EN OR et 50 pieces ! (+5 drapeaux)")
     }
 
     private fun openChest2() {
@@ -2853,6 +2962,11 @@ class GameView(context: Context) : View(context) {
             clearPendings(); pendingChest3 = true
             return
         }
+        if (world.secretChests.containsValue(i)) {
+            if (!walkNextTo(gx, gy)) { showMsg("Coffre inaccessible."); return }
+            clearPendings(); pendingSecretChest = i
+            return
+        }
         if (i in world.revealed && i !in world.mines && i !in world.flagged) {
             val p = world.findPath(hx, hy, gx, gy)
             if (p == null) { showMsg("Aucun chemin sur vers cette dalle."); return }
@@ -3197,6 +3311,12 @@ class GameView(context: Context) : View(context) {
                         if (world.isTeleport(gx, gy)) drawTeleport(canvas)
                         if (isExit) drawStar(canvas)
                         if (i in world.hearts) drawHeart(canvas)
+                        if (world.secretChests.containsValue(i))
+                            drawChest(canvas, true, i in secretLooted, false)
+                        if (world.secretTraps.containsKey(i) && i in secretFound)
+                            drawSecretHatch(canvas)
+                        else if (world.secretTraps.containsKey(i))
+                            drawSuspiciousTile(canvas)
                         val n = world.countAround(gx, gy)
                         if (n > 0 && i !in world.plates && i !in world.targets && i !in world.targets2 &&
                             k < 0 && i != world.altar && !isExit && i !in world.hearts &&
@@ -4357,6 +4477,41 @@ class GameView(context: Context) : View(context) {
         drawSprite(canvas, sKey, cxx, cyy, sz * 1.6f)
     }
 
+    /** Un indice DISCRET sur une dalle piegee : 4 rivets et une fissure. */
+    private fun drawSuspiciousTile(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(70, 40, 35, 28)
+        val o = tile * 0.32f
+        for (dx in intArrayOf(-1, 1)) for (dy in intArrayOf(-1, 1)) {
+            canvas.drawCircle(rect.centerX() + dx * o, rect.centerY() + dy * o, tile * 0.035f, paint)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.02f
+        paint.color = Color.argb(55, 30, 25, 20)
+        canvas.drawLine(rect.centerX() - o * 0.6f, rect.top + tile * 0.3f,
+                        rect.centerX() + o * 0.4f, rect.bottom - tile * 0.3f, paint)
+        paint.style = Paint.Style.FILL
+    }
+
+    /** La trappe cachee, une fois revelee : un trou beant borde de bois. */
+    private fun drawSecretHatch(canvas: Canvas) {
+        val rad = tile * 0.12f
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(20, 14, 10)
+        canvas.drawRoundRect(rect, rad, rad, paint)
+        paint.color = Color.rgb(84, 60, 38)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.08f
+        canvas.drawRoundRect(rect, rad, rad, paint)
+        // battant ouvert
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(110, 82, 52)
+        canvas.drawRect(rect.left, rect.top, rect.right, rect.top + tile * 0.18f, paint)
+        val pulse = 0.5f + 0.5f * sin(time * 4f)
+        paint.color = Color.argb((60 + 60 * pulse).toInt(), 240, 200, 90)
+        canvas.drawCircle(rect.centerX(), rect.centerY() + tile * 0.05f, tile * 0.06f, paint)
+    }
+
     private fun drawTrap(canvas: Canvas) {
         val rad = tile * 0.12f
         if (!world.trapOpen) {
@@ -4698,6 +4853,7 @@ class GameView(context: Context) : View(context) {
         }
         // (icone, libelle, valeur, couleur)
         val rows: List<Array<Any?>> = listOf(
+            arrayOf(sCoin, "Pieces d'or", "$gold", Color.rgb(255, 205, 70)),
             arrayOf(null, "Drapeaux", "$flagsLeft", Color.rgb(230, 55, 50)),
             arrayOf(sKey, "Cle en or", if (world.hasKey) "1" else "0", Color.rgb(255, 216, 92)),
             arrayOf(sSwordV, "Epee", if (swordOwned) "1 (combat a venir)" else "0", Color.rgb(180, 195, 220)),

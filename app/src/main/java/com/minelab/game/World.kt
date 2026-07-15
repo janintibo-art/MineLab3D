@@ -132,6 +132,14 @@ class World(
     var hasKey = false
     var door = -1
     var trapOpen = false
+    // --- LES CACHES SECRETES : trappe cachee -> antichambre -> coffre d'or ---
+    /** cellule declencheur (dalle un peu suspecte) -> premiere case de l'antichambre. */
+    val secretTraps = HashMap<Int, Int>()
+    /** antichambre -> (coffre, liste de cases-monstres). */
+    val secretChests = HashMap<Int, Int>()
+    val secretMonsters = HashMap<Int, ArrayList<Int>>()
+    /** toutes les cases d'antichambre (rendu / passage). */
+    val secretRooms = HashMap<Int, Int>()   // case -> id de la cache
     var chest2 = -1
     var chest2Spawned = false
     var chest2Open = false
@@ -212,6 +220,7 @@ class World(
         buildCorridor2()
         buildSudoku()
         buildLights()
+        buildSecretCaches()
         buildIsland()
         placeMines()
         placeHearts()
@@ -383,6 +392,54 @@ class World(
      * [9] L'ILE : on sort du donjon par le portail et on arrive a la surface.
      * Mer -> haut-fond -> rivage -> plage -> herbe, chemins de terre et village.
      */
+    /**
+     * Trois CACHES SECRETES : une dalle d'apparence anodine, posee sur un sol
+     * deja revele, dissimule une trappe. Dessous : une petite antichambre 5x4
+     * (creusee dans la roche) gardee par des monstres, avec un coffre d'or.
+     * L'antichambre est placee dans une bande de mur vierge, loin de tout.
+     */
+    private fun buildSecretCaches() {
+        // Emplacements candidats pour les dalles-declencheurs : des cases de sol
+        // deja revelees, dans les salles du haut du donjon.
+        val triggers = listOf(
+            idx(ax + 4, 5), idx(bx + 6, 6), idx(16, uy0 + 7)
+        ).filter { it >= 0 && isFloor(cx(it), cy(it)) }
+
+        // Bandes de roche ou creuser (colonnes de droite, hors salles connues)
+        val caveSlots = listOf(
+            Triple(wid - 8, 2, 1), Triple(wid - 8, 8, 2), Triple(wid - 14, 14, 3)
+        )
+
+        for ((k, trig) in triggers.withIndex()) {
+            if (k >= caveSlots.size) break
+            val (rx, ry, id) = caveSlots[k]
+            if (!inside(rx + 4, ry + 3)) continue
+            // creuser l'antichambre 5x4
+            val cells = ArrayList<Int>()
+            for (yy in ry until ry + 4) for (xx in rx until rx + 5) {
+                if (!inside(xx, yy)) continue
+                val c = idx(xx, yy)
+                grid[c] = FLOOR
+                terrain[c] = TER_NONE
+                cells.add(c)
+                secretRooms[c] = id
+            }
+            if (cells.isEmpty()) continue
+            val entry = cells.first()            // ou l'on tombe
+            val chestC = cells.last()            // le coffre, au fond
+            secretTraps[trig] = entry
+            secretChests[entry] = chestC
+            // 2 monstres gardiens (indices de sprite varies : la serie rigolote)
+            val guards = ArrayList<Int>()
+            val mid = cells[cells.size / 2]
+            guards.add(mid)
+            guards.add(cells[cells.size / 2 - 1])
+            secretMonsters[entry] = guards
+            // la dalle-piege reste dans revealed (elle a l'air normale)
+            revealed.add(trig)
+        }
+    }
+
     private fun buildIsland() {
         val h = 34
         val top = iy0

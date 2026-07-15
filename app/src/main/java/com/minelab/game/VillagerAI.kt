@@ -226,16 +226,84 @@ object VillagerAI {
     private val RX by lazy { Regex("\\{(\\w+)\\}") }
 
     /** Remplace chaque {symbole} en cascade (garde-fou anti-boucle). */
-    private fun expanser(modele: String, r: Random): String {
+    private fun expanser(modele: String, r: Random, dict: Map<String, List<String>> = G): String {
         var t = modele
         repeat(8) {
             if (!t.contains('{')) return@repeat
             t = RX.replace(t) { m ->
-                val pool = G[m.groupValues[1]]
+                val pool = dict[m.groupValues[1]]
                 if (pool.isNullOrEmpty()) m.value else pool[r.nextInt(pool.size)]
             }
         }
         return t.replaceFirstChar { it.uppercase() }
+    }
+
+    // ------------------------------------------ les histoires du distributeur
+
+    /** La grammaire du DISTRIBUTEUR 8.6 : des histoires de punk a chien. */
+    private val GP: Map<String, List<String>> by lazy {
+        mapOf(
+            "histoire" to listOf(
+                "GRZZT... Y'a {punknom} et son chien {chien} : ils ont {exploit}. {chute}",
+                "Un soir au {lieupunk}, {punknom} a {exploit}. {chute}",
+                "{punknom} m'a jure que son chien {chien} {exploitchien}. {chute}",
+                "Legende du {lieupunk} : {punknom} a {exploit}, pendant que {chien} {reactionchien}. {chute}",
+                "Il parait que {punknom} a echange {objet} contre {objet2}. Son chien {chien} en rit encore. {chute}",
+                "GRZZT... {punknom} dit que ma monnaie sert la revolution. {chute}"
+            ),
+            "punknom" to listOf(
+                "Crado", "La Teigne", "Vomito", "Zonzon", "Kro",
+                "La Fouine", "Gribouille", "Steplait"
+            ),
+            "chien" to listOf(
+                "Mastoc", "Clebs", "Bieraubeurre", "Puce", "Rototo", "Kilo", "Ta-Gueule"
+            ),
+            "lieupunk" to listOf(
+                "squat de la gare", "concert des Rats Crades", "parking du supermarche",
+                "vieux pont", "festival de la boue"
+            ),
+            "exploit" to listOf(
+                "echange sa crete contre trois canettes",
+                "dormi dans la benne du boulanger",
+                "monte un groupe avec deux casseroles",
+                "fait la manche en jonglant avec des canettes vides",
+                "traverse le pays en stop avec un panneau AILLEURS",
+                "gagne un concours de cri contre une mouette"
+            ),
+            "exploitchien" to listOf(
+                "ouvre les canettes avec les dents",
+                "aboie uniquement sur les videurs",
+                "dort dans un etui de basse",
+                "porte un bandana plus propre que son maitre",
+                "fait la tournee des squats tout seul"
+            ),
+            "reactionchien" to listOf(
+                "gardait la couronne de capsules", "remuait la queue en rythme",
+                "dormait sur l'ampli", "comptait les canettes"
+            ),
+            "objet" to listOf(
+                "sa veste a clous", "son unique lacet",
+                "sa collection de capsules", "son mediator porte-bonheur"
+            ),
+            "objet2" to listOf(
+                "un solo de basse", "deux concerts gratuits",
+                "un shampoing pour chien", "une carte du monde dessinee a la main"
+            ),
+            "chute" to listOf(
+                "Punk's not dead, il sent juste fort.",
+                "Moralite : jamais sans son chien.",
+                "Et la canette etait meme pas fraiche.",
+                "No futur, mais quel present !",
+                "8.6 raisons d'y croire.",
+                "Le chien, lui, avait tout compris."
+            )
+        )
+    }
+
+    /** Une histoire de punk a chien racontee par la machine. */
+    fun histoireDistributeur(r: Random): String {
+        val pool = GP["histoire"] ?: return "GRZZT... 2,50... GRZZT..."
+        return expanser(pool[r.nextInt(pool.size)], r, GP)
     }
 
     // ------------------------------------------------------------ le "cerveau"

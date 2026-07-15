@@ -985,15 +985,7 @@ class GameView(context: Context) : View(context) {
                 lightTorch(t)
             } else if (pendingVendor >= 0) {
                 val v = pendingVendor; pendingVendor = -1
-                if (v in vendorsUsed) {
-                    showMsg("Plus de monnaie... Le distributeur affiche 2,50.")
-                } else {
-                    vendorsUsed.add(v)
-                    energyCount++
-                    audio.play("chest")
-                    showMsg("CLONK ! Une canette bien fraiche tombe. (inventaire)")
-                    saveGame()
-                }
+                useVendor(v)
             } else if (pendingRune) {
                 pendingRune = false
                 if (world.lightsSolved) showMsg("La porte est deja ouverte.")
@@ -1427,6 +1419,28 @@ class GameView(context: Context) : View(context) {
         audio.play("pickup")
     }
 
+    /** Le distributeur : une canette la premiere fois, des histoires ensuite. */
+    private fun useVendor(cell: Int) {
+        if (cell !in vendorsUsed) {
+            vendorsUsed.add(cell)
+            energyCount++
+            audio.play("chest")
+            showMsg("CLONK ! Une canette bien fraiche tombe. (inventaire)")
+            saveGame()
+            return
+        }
+        dialogue = try {
+            VillagerAI.histoireDistributeur(npcRnd)
+        } catch (t: Throwable) {
+            "GRZZT... 2,50... GRZZT..."
+        }
+        dialogueName = "DISTRIBUTEUR 8.6"
+        dialogueX = world.cx(cell) + 0.5f
+        dialogueY = world.cy(cell) + 0.15f
+        dialogueT = (3f + dialogue.length * 0.05f).coerceAtMost(9f)
+        audio.play("pickup")
+    }
+
     /** Quelle interaction est possible ici ? (bouton contextuel) */
     private fun updateInteraction() {
         actKind = 0
@@ -1454,7 +1468,8 @@ class GameView(context: Context) : View(context) {
             if (!world.inside(hx + dx, hy + dy)) continue
             val c = world.idx(hx + dx, hy + dy)
             if (world.vendors.containsKey(c)) {
-                actKind = 4; actData = c; actLabel = "8.6 — 2,50"
+                actKind = 4; actData = c
+                actLabel = if (c in vendorsUsed) "HISTOIRE DU 8.6" else "8.6 — 2,50"
                 return
             }
         }
@@ -1508,17 +1523,7 @@ class GameView(context: Context) : View(context) {
             1 -> tryEnterHouse(actData)
             2 -> leaveHouse(actData)
             3 -> walkers.getOrNull(actData)?.let { if (hypot(it.x - fx, it.y - fy) <= 2.3f) talkTo(it) }
-            4 -> {
-                if (actData in vendorsUsed) {
-                    showMsg("Plus de monnaie... Le distributeur affiche 2,50.")
-                } else {
-                    vendorsUsed.add(actData)
-                    energyCount++
-                    audio.play("chest")
-                    showMsg("CLONK ! Une canette bien fraiche tombe. (inventaire)")
-                    saveGame()
-                }
-            }
+            4 -> useVendor(actData)
         }
     }
 
@@ -2912,40 +2917,64 @@ class GameView(context: Context) : View(context) {
     /** La bulle de dialogue. */
     private fun drawDialogue(canvas: Canvas, w: Float, h: Float) {
         if (dialogueT <= 0f) return
-        val cxx = sx(dialogueX, w)
+        val anchorX = sx(dialogueX, w)
         val cyy = sy(dialogueY) - tile * 0.95f
         paint.textSize = h * 0.019f
+        paint.isFakeBoldText = false
+        // Decoupage en lignes : les histoires du distributeur sont longues !
+        val maxW = w * 0.72f
+        val lines = ArrayList<String>()
+        var cur = ""
+        for (word in dialogue.split(" ")) {
+            val t = if (cur.isEmpty()) word else "$cur $word"
+            if (paint.measureText(t) > maxW && cur.isNotEmpty()) {
+                lines.add(cur)
+                cur = word
+            } else cur = t
+        }
+        if (cur.isNotEmpty()) lines.add(cur)
         val hasName = dialogueName.isNotEmpty()
-        val tw = maxOf(paint.measureText(dialogue), paint.measureText(dialogueName)) + h * 0.03f
-        val th = if (hasName) h * 0.075f else h * 0.05f
+        val lineH = h * 0.0255f
+        var tw = 0f
+        for (l in lines) tw = maxOf(tw, paint.measureText(l))
+        if (hasName) {
+            paint.textSize = h * 0.0145f
+            tw = maxOf(tw, paint.measureText(dialogueName))
+            paint.textSize = h * 0.019f
+        }
+        tw += h * 0.034f
+        val headH = if (hasName) h * 0.03f else h * 0.008f
+        val th = lineH * lines.size + headH + h * 0.016f
+        val cxx = anchorX.coerceIn(tw / 2f + w * 0.012f, w - tw / 2f - w * 0.012f)
         tmpRect.set(cxx - tw / 2f, cyy - th, cxx + tw / 2f, cyy)
-        paint.color = Color.argb(240, 250, 246, 235)
-        canvas.drawRoundRect(tmpRect, th * 0.3f, th * 0.3f, paint)
+        paint.color = Color.argb(242, 250, 246, 235)
+        canvas.drawRoundRect(tmpRect, h * 0.014f, h * 0.014f, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = h * 0.003f
         paint.color = Color.rgb(120, 90, 50)
-        canvas.drawRoundRect(tmpRect, th * 0.3f, th * 0.3f, paint)
+        canvas.drawRoundRect(tmpRect, h * 0.014f, h * 0.014f, paint)
         paint.style = Paint.Style.FILL
         val p = Path()
-        p.moveTo(cxx - th * 0.16f, cyy - h * 0.001f)
-        p.lineTo(cxx + th * 0.16f, cyy - h * 0.001f)
-        p.lineTo(cxx, cyy + th * 0.25f)
+        p.moveTo(anchorX - h * 0.012f, cyy - h * 0.001f)
+        p.lineTo(anchorX + h * 0.012f, cyy - h * 0.001f)
+        p.lineTo(anchorX, cyy + h * 0.014f)
         p.close()
-        paint.color = Color.argb(240, 250, 246, 235)
+        paint.color = Color.argb(242, 250, 246, 235)
         canvas.drawPath(p, paint)
         paint.textAlign = Paint.Align.CENTER
+        var ty = cyy - th + headH + lineH * 0.62f
         if (hasName) {
             paint.color = Color.rgb(150, 100, 40)
             paint.isFakeBoldText = true
-            paint.textSize = h * 0.015f
-            canvas.drawText(dialogueName, cxx, cyy - th + h * 0.022f, paint)
+            paint.textSize = h * 0.0145f
+            canvas.drawText(dialogueName, cxx, cyy - th + h * 0.021f, paint)
             paint.isFakeBoldText = false
             paint.textSize = h * 0.019f
-            paint.color = Color.rgb(40, 34, 28)
-            canvas.drawText(dialogue, cxx, cyy - h * 0.014f, paint)
-        } else {
-            paint.color = Color.rgb(40, 34, 28)
-            canvas.drawText(dialogue, cxx, cyy - th * 0.34f, paint)
+        }
+        paint.color = Color.rgb(40, 34, 28)
+        for (l in lines) {
+            canvas.drawText(l, cxx, ty, paint)
+            ty += lineH
         }
     }
 

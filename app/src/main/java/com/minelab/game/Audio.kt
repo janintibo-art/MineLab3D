@@ -40,7 +40,7 @@ class Audio(private val ctx: Context) {
             R.raw.village1, R.raw.village2, R.raw.village3,
             R.raw.village4, R.raw.village5, R.raw.village6,
             R.raw.punk_slip,
-            R.raw.punk_champi1, R.raw.punk_champi2, R.raw.taverne_song
+            R.raw.punk_champi1, R.raw.punk_champi2, R.raw.taverne_song, R.raw.taverne_song2
         )
         val TRACK_NAMES = arrayOf(
             "donjon 1", "donjon 2", "donjon 3", "donjon 4",
@@ -48,11 +48,12 @@ class Audio(private val ctx: Context) {
             "village lent 1", "village lent 2", "village rapide 1",
             "village rapide 2", "village joyeux 1", "village joyeux 2",
             "Le slip a Pierre (PUNK!)",
-            "Champis Magiques I", "Champis Magiques II", "Chanson du bar"
+            "Champis Magiques I", "Champis Magiques II", "Chanson du bar", "Chanson du bar 2"
         )
         const val T_CHAMPI1 = 15
         const val T_CHAMPI2 = 16
         const val T_TAVERNE = 17
+        const val T_TAVERNE2 = 18
         const val NONE = -1
     }
 

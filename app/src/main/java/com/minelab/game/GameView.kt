@@ -386,6 +386,7 @@ class GameView(context: Context) : View(context) {
     private val sBass: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_bass)
     private val sDrums: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_drums)
     private val sMic: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_mic)
+    private val sAntifa: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.o_antifa)
     private val sSlip: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.slip)
     private val sRod: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.rod)
     private val sBoat: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.boat1)
@@ -1840,6 +1841,7 @@ class GameView(context: Context) : View(context) {
     /** Ce que le village SAIT (ou saura bientot) des exploits du heros. */
     private var rumeurT = 0f            // horloge de propagation des rumeurs
     private var champiGiven = 0        // combien de champis distribues au concert (alterne les titres)
+    private var tavernSongToggle = 0   // alterne les 2 chansons du bar
 
     /** Cree une rumeur dans le village (evenement notable du heros). */
     private fun noteRumeur(cle: String, texte: String, positif: Boolean) {
@@ -2664,7 +2666,8 @@ class GameView(context: Context) : View(context) {
         if (n == 7) showMsg("LE GRAND ARBRE... Les runes murmurent doucement.")
         if (n == 8) {
             showMsg("LA TAVERNE ! Biere, vin, repas ET histoires !")
-            audio.playEvent(Audio.T_TAVERNE)   // la chanson du bar !
+            tavernSongToggle++
+            audio.playEvent(if (tavernSongToggle % 2 == 1) Audio.T_TAVERNE else Audio.T_TAVERNE2)
         }
         enterHouse(n)
     }
@@ -4206,6 +4209,13 @@ class GameView(context: Context) : View(context) {
             8 -> drawSprite(canvas, sBass, rect.centerX(), rect.centerY() - tile * 0.25f, tile * 1.4f)
             9 -> drawSprite(canvas, sDrums, rect.centerX(), rect.centerY() - tile * 0.15f, tile * 1.7f)
             10 -> drawSprite(canvas, sMic, rect.centerX(), rect.centerY() - tile * 0.3f, tile * 1.5f)
+            11 -> {   // Drapeau antifa : ondule doucement, accroche au mur
+                val sway = sin(time * 1.6f) * 3f
+                canvas.save()
+                canvas.rotate(sway, rect.centerX(), rect.centerY() - tile * 0.3f)
+                drawSprite(canvas, sAntifa, rect.centerX(), rect.centerY() - tile * 0.2f, tile * 1.7f)
+                canvas.restore()
+            }
         }
     }
 

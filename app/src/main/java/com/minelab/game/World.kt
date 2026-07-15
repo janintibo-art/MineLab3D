@@ -783,15 +783,19 @@ class World(
                 fixtures[idx(rx0 + 3, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
             }
-            3 -> fixtures[idx(rx0 + 6, ry0 + 3)] = 5   // squat : tapis punk
+            3 -> {                                  // squat : tapis punk + drapeau antifa
+                fixtures[idx(rx0 + 6, ry0 + 3)] = 5
+                fixtures[idx(rx0 + 2, ry0 - 1)] = 11
+            }
             4 -> {                                  // alchimiste : fenetre + tapis
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 + 4)] = 5
             }
             7 -> fixtures[idx(rx0 + 6, ry0 + 3)] = 4   // l'antre de l'arbre : le tapis
-            8 -> {                                  // taverne : cheminee, fenetres
+            8 -> {                                  // taverne : cheminee, fenetres + drapeau a l'entree
                 fixtures[idx(rx0 + 2, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 9, ry0 - 1)] = 1
+                fixtures[idx(rx0 + 4, ry0 + 7)] = 11   // a cote de la porte d'entree
             }
             6 -> {                                  // guilde : cheminee, fenetres, grand tapis
                 fixtures[idx(rx0 + 2, ry0 - 1)] = 1
@@ -799,8 +803,9 @@ class World(
                 fixtures[idx(rx0 + 10, ry0 - 1)] = 1
                 fixtures[idx(rx0 + 6, ry0 + 3)] = 4
             }
-            5 -> {                                  // club : la scene et le matos
+            5 -> {                                  // club : la scene et le matos + drapeau
                 fixtures[idx(rx0 + 6, ry0)] = 3
+                fixtures[idx(rx0 + 9, ry0)] = 11        // drapeau antifa pres de la scene
                 fixtures[idx(rx0 + 4, ry0 + 1)] = 10    // micro devant la scene
                 fixtures[idx(rx0 + 0, ry0)] = 6         // amplis
                 fixtures[idx(rx0 + 11, ry0)] = 6

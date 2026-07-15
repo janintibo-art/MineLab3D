@@ -3929,7 +3929,7 @@ class GameView(context: Context) : View(context) {
             arrayOf(sShroom, "Champignon de Kaos", if (shroomCount > 0) "$shroomCount - touchez pour gouter" else "0", Color.rgb(200, 90, 255)),
             arrayOf(sRod, "Canne de Franki", if (rodOwned) "touchez la mer pour pecher" else "0", Color.rgb(120, 190, 240)),
             arrayOf(sSlip, "Slip de Pierre", if (slipOwned) "rapportez-le a Pierre !" else "0", Color.rgb(240, 230, 210)),
-            arrayOf(sEnergy, "Canette d'energie", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
+            arrayOf(sEnergy, "Canette de 8.6", if (energyCount > 0) "$energyCount - touchez pour boire" else "0", Color.rgb(90, 160, 240)),
             arrayOf(null, "Poisson frais", if (fishCount > 0) "$fishCount - touchez pour manger" else "0", Color.rgb(110, 220, 190)),
             arrayOf(null, "Bottes / Algues (peche)", "$bootCount / $algaeCount", Color.rgb(180, 150, 110)),
             arrayOf(null, "Coeurs ramasses", "$heartsGot", Color.rgb(230, 60, 80)),
@@ -3948,7 +3948,7 @@ class GameView(context: Context) : View(context) {
             val col = r[3] as Int
             tmpRect.set(bx, y, bx + bw, y + rh)
             if (label == "Joystick") invJoyRect.set(tmpRect)
-            if (label == "Canette d'energie") invEnergyRect.set(tmpRect)
+            if (label == "Canette de 8.6") invEnergyRect.set(tmpRect)
             if (label == "Poisson frais") invFishRect.set(tmpRect)
             if (label == "Champignon de Kaos") invShroomRect.set(tmpRect)
             val active = (label == "Joystick" && joyOn)

@@ -1840,7 +1840,8 @@ class GameView(context: Context) : View(context) {
 
     /** Ce que le village SAIT (ou saura bientot) des exploits du heros. */
     private var rumeurT = 0f            // horloge de propagation des rumeurs
-    private var champiGiven = 0        // combien de champis distribues au concert (alterne les titres)
+    private var champiGiven = 0        // combien de champis distribues au concert
+    private var lastConcertTrack = -1  // anti-repetition des chansons du concert
     private var tavernSongToggle = 0   // alterne les 2 chansons du bar
 
     /** Cree une rumeur dans le village (evenement notable du heros). */
@@ -2612,8 +2613,13 @@ class GameView(context: Context) : View(context) {
         val wk = walkers.getOrNull(walkerIdx) ?: return
         shroomCount--
         champiGiven++
-        // 2 titres, en alternance a chaque champi offert
-        val track = if (champiGiven % 2 == 1) Audio.T_CHAMPI1 else Audio.T_CHAMPI2
+        // pioche une des 5 chansons du concert, jamais deux fois la meme d'affilee
+        var track = Audio.CONCERT[npcRnd.nextInt(Audio.CONCERT.size)]
+        var essais = 0
+        while (track == lastConcertTrack && Audio.CONCERT.size > 1 && essais < 8) {
+            track = Audio.CONCERT[npcRnd.nextInt(Audio.CONCERT.size)]; essais++
+        }
+        lastConcertTrack = track
         audio.playEvent(track)
         tripT = 6f                      // petit effet visuel psychedelique
         // le PNJ regarde le heros, tout le monde est content

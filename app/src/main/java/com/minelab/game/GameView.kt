@@ -2556,13 +2556,13 @@ class GameView(context: Context) : View(context) {
         // les chevauchements ne se voient plus, la zone est parfaitement unie.
         val lagoonLayer = canvas.saveLayerAlpha(
             sx(x0.toFloat(), w), sy(y0.toFloat()),
-            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 80
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 58
         )
         terPaint.shader = null
         terPaint.color = Color.rgb(190, 245, 235)
         layer({ it == World.TER_SHALLOW || it == World.TER_SHORE || it == World.TER_SAND ||
                 it == World.TER_GRASS || it == World.TER_DIRT || it == World.TER_EARTH },
-            2, 0.2f, 0.4f, 101)
+            3, 0.10f, 0.24f, 101)
         canvas.restoreToCount(lagoonLayer)
         terPaint.color = Color.BLACK
 
@@ -2575,10 +2575,10 @@ class GameView(context: Context) : View(context) {
         }
         val reliefLayer = canvas.saveLayerAlpha(
             sx(x0.toFloat(), w), sy(y0.toFloat()),
-            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 60
+            sx((x1 + 1).toFloat(), w), sy((y1 + 1).toFloat()), 42
         )
         canvas.save()
-        canvas.translate(tile * 0.20f, tile * 0.30f)
+        canvas.translate(tile * 0.13f, tile * 0.19f)
         terPaint.shader = null
         terPaint.color = Color.rgb(4, 14, 26)
         layer(isLand, 2, 0.22f, 0.45f, 202)
@@ -2599,10 +2599,10 @@ class GameView(context: Context) : View(context) {
                 val t2 = terOf(gx + d.first, gy + d.second)
                 if (t2 != World.TER_SHALLOW && t2 != World.TER_WATER) continue
                 val foam = 0.5f + 0.5f * sin(time * 1.4f + gx * 0.9f + gy * 0.7f)
-                paint.color = Color.argb((25 + 45 * foam).toInt(), 255, 255, 255)
-                val px = sx(gx + 0.5f + d.first * (0.35f + 0.12f * foam), w)
-                val py = sy(gy + 0.5f + d.second * (0.35f + 0.12f * foam))
-                canvas.drawCircle(px, py, tile * (0.22f + 0.12f * foam), paint)
+                paint.color = Color.argb((15 + 27 * foam).toInt(), 255, 255, 255)
+                val px = sx(gx + 0.5f + d.first * (0.38f + 0.1f * foam), w)
+                val py = sy(gy + 0.5f + d.second * (0.38f + 0.1f * foam))
+                canvas.drawCircle(px, py, tile * (0.16f + 0.1f * foam), paint)
             }
         }
 
@@ -2857,22 +2857,33 @@ class GameView(context: Context) : View(context) {
 
     /** Une porte de maison (entree / sortie). */
     private fun drawHouseDoor(canvas: Canvas) {
-        tmpRect.set(
-            rect.left + tile * 0.16f, rect.top + tile * 0.06f,
-            rect.right - tile * 0.16f, rect.bottom - tile * 0.02f
+        val pulse = 0.5f + 0.5f * sin(time * 2.6f)
+        // Halo dore au sol
+        paint.color = Color.argb((26 + 34 * pulse).toInt(), 255, 215, 120)
+        canvas.drawOval(
+            rect.left + tile * 0.12f, rect.top + tile * 0.3f,
+            rect.right - tile * 0.12f, rect.bottom - tile * 0.02f, paint
         )
-        paint.color = Color.rgb(96, 62, 34)
-        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
+        // Anneau fin
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = tile * 0.035f
-        paint.color = Color.rgb(150, 104, 52)
-        canvas.drawRoundRect(tmpRect, tile * 0.08f, tile * 0.08f, paint)
+        paint.color = Color.argb((90 + 90 * pulse).toInt(), 255, 225, 150)
+        canvas.drawOval(
+            rect.left + tile * 0.2f, rect.top + tile * 0.42f,
+            rect.right - tile * 0.2f, rect.bottom - tile * 0.1f, paint
+        )
         paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(240, 200, 90)
-        canvas.drawCircle(tmpRect.right - tile * 0.08f, tmpRect.centerY(), tile * 0.045f, paint)
-        val pulse = 0.5f + 0.5f * sin(time * 3f)
-        paint.color = Color.argb((30 + 40 * pulse).toInt(), 255, 220, 130)
-        canvas.drawCircle(rect.centerX(), rect.centerY(), tile * 0.4f, paint)
+        // Petit chevron d'entree
+        paint.strokeWidth = tile * 0.05f
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = Color.argb(230, 255, 240, 200)
+        val cxx = rect.centerX()
+        val cyy = rect.centerY() + tile * 0.1f
+        canvas.drawLine(cxx - tile * 0.1f, cyy + tile * 0.06f, cxx, cyy - tile * 0.06f, paint)
+        canvas.drawLine(cxx, cyy - tile * 0.06f, cxx + tile * 0.1f, cyy + tile * 0.06f, paint)
+        paint.style = Paint.Style.FILL
+        paint.strokeCap = Paint.Cap.BUTT
     }
 
     /** Villageois et animaux. */

@@ -578,12 +578,12 @@ class World(
         val ry0 = hy0 + 1 + row * 9
         if (ry0 + 8 >= hei || rx0 + 12 >= wid) return
         houseFloor[n] = when (n) {
-            2 -> 3        // forge : sol de pierre
-            3 -> 2        // maison anarchiste : sol sombre et crade
-            4 -> 5        // cabane d'alchimiste
+            2 -> 14       // forge : grandes dalles de pierre claire (SOL_CLAIR_02)
+            3 -> 23       // squat anarchiste : beton clair tache, crade mais lumineux (SOL_CLAIR_11)
+            4 -> 32       // cabane d'alchimiste : carreaux hexagonaux, tres alchimique (SOL_CLAIR_20)
             5 -> 31       // le punk club : plancher clair (contraste avec les punks !)
                           // (hfloor6 etait une texture de MUR a colombages - bug corrige)
-            else -> 1     // chaumiere : parquet
+            else -> 22    // chaumiere : planches de bois blond (SOL_CLAIR_10)
         }
         for (y in ry0..ry0 + 7) for (x in rx0..rx0 + 11) {
             val i = idx(x, y)

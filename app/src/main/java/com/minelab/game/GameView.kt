@@ -117,7 +117,10 @@ class GameView(context: Context) : View(context) {
     private var pendingDisarm = -1
     private var pendingChest = false
     private var pendingSecretChest = -1
+    private var pendingD2Reveal = -1
+    private var pendingD2Chest = false
     private var secretReturnCell = -1        // ou remonter apres une cache
+    private var d2Return = -1                 // ou remonter apres le donjon 2
     private var pendingDoor = false
     private var pendingChest2 = false
     private var pendingChest3 = false
@@ -683,6 +686,8 @@ class GameView(context: Context) : View(context) {
         spellKnown.fill(false); spellDemo = -1; spellDemoT = 0f
         spellSel = -1; spellCd = 0f; spellPicker = false; bolts.clear()
         gold = 0; goldAnim = 0f; secretFound.clear(); secretLooted.clear()
+        d2Return = -1
+        pendingD2Reveal = -1; pendingD2Chest = false
         showShop = false; shopMerchant = 0; shopDiscount = 0; shopMood = 0
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
@@ -804,6 +809,10 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("ticket", ticketOwned)
         e.putBoolean("shroomT", world.shroomTaken)
         e.putBoolean("d2r", world.dungeon2Revealed)
+        e.putBoolean("d2ent", world.dungeon2Entered)
+        e.putBoolean("d2chest", world.d2ChestOpen)
+        e.putString("d2rev", setToStr(world.d2Revealed))
+        e.putInt("d2ret", d2Return)
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -909,6 +918,10 @@ class GameView(context: Context) : View(context) {
         ticketOwned = prefs.getBoolean("ticket", false)
         world.shroomTaken = prefs.getBoolean("shroomT", false)
         world.dungeon2Revealed = prefs.getBoolean("d2r", false)
+        world.dungeon2Entered = prefs.getBoolean("d2ent", false)
+        world.d2ChestOpen = prefs.getBoolean("d2chest", false)
+        world.d2Revealed.addAll(strToSet(prefs.getString("d2rev", "")))
+        d2Return = prefs.getInt("d2ret", -1)
         val wt = prefs.getString("wtags", "") ?: ""
         if (wt.isNotBlank()) {
             for (part in wt.split(";")) {
@@ -1236,7 +1249,12 @@ class GameView(context: Context) : View(context) {
                     pathStep = 0
                 }
             }
-            if (pendingReveal >= 0) {
+            if (pendingD2Reveal >= 0) {
+                val i = pendingD2Reveal; pendingD2Reveal = -1
+                d2Reveal(world.cx(i), world.cy(i)); saveGame()
+            } else if (pendingD2Chest) {
+                pendingD2Chest = false; openD2Chest(); saveGame()
+            } else if (pendingReveal >= 0) {
                 val i = pendingReveal; pendingReveal = -1
                 doReveal(world.cx(i), world.cy(i)); saveGame()
             } else if (pendingDisarm >= 0) {
@@ -1475,7 +1493,13 @@ class GameView(context: Context) : View(context) {
 
         // L'entree secrete du prochain donjon
         if (i == world.dungeon2Cell && world.dungeon2Revealed) {
-            showMsg("L'entree du prochain donjon... scellee pour l'instant. (A SUIVRE !)")
+            enterDungeon2()
+            return
+        }
+        // Remonter du donjon 2 vers l'ile
+        if (i == world.d2ExitCell && world.isDungeon2(hx, hy)) {
+            leaveDungeon2()
+            return
         }
         // Les champignons de Kaos (seulement pour les vrais taggeurs)
         if (i == world.shroomCell && !world.shroomTaken && spraysDone >= 3) {
@@ -2718,7 +2742,9 @@ class GameView(context: Context) : View(context) {
     private fun clearPendings() {
         pendingReveal = -1; pendingDisarm = -1
         pendingChest = false
-        pendingSecretChest = -1; pendingDoor = false
+        pendingSecretChest = -1
+        pendingD2Reveal = -1
+        pendingD2Chest = false; pendingDoor = false
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
         pendingMini = -1; pendingTorch = -1; pendingDoor3 = false; pendingRune = false
@@ -2771,6 +2797,81 @@ class GameView(context: Context) : View(context) {
     }
 
     /** Ajoute des pieces a la bourse, avec un petit flash. */
+    /** Sonder une dalle du donjon 2 : givre = degats, sinon revelation. */
+    private fun d2Reveal(x: Int, y: Int) {
+        val i = world.idx(x, y)
+        if (i in world.d2Revealed) return
+        if (i in world.d2Mines) {
+            // piege de givre : degats, la dalle se revele quand meme
+            world.d2Revealed.add(i)
+            hp = (hp - 25).coerceAtLeast(0)
+            audio.play("error")
+            showMsg("AIE ! Un piege de givre ! -25 PV. (${world.d2Mines.size} au total dans la salle)")
+            if (hp <= 0) { gameOver = true; audio.play("lose") }
+            return
+        }
+        world.d2RevealCascade(x, y)
+        val n = world.d2Around(x, y)
+        audio.play("pickup")
+        if (n == 0) showMsg("Zone sure, le givre recule autour de vous.")
+    }
+
+    /** Le coffre-tresor de la Caverne de Cristal (gardiens d'abord). */
+    private fun openD2Chest() {
+        if (world.d2ChestOpen) { showMsg("Le coffre de cristal est vide."); return }
+        val guardsAlive = mobs.any { it.hp > 0 && world.isDungeon2(it.x.toInt(), it.y.toInt()) }
+        if (guardsAlive) { showMsg("Les gardiens de cristal veillent ! Terrassez-les d'abord."); return }
+        world.d2ChestOpen = true
+        gainGold(150)
+        flagsLeft += 5
+        hp = 100
+        audio.play("chest"); audio.play("win")
+        noteRumeur("donjon2", "le heros a ose entrer dans la Caverne de Cristal du second donjon !", true)
+        showMsg("TRESOR DE CRISTAL ! 150 pieces d'or, +5 drapeaux, et l'energie revient au max ! (A SUIVRE...)")
+        saveGame()
+    }
+
+    /** Descend dans la Caverne de Cristal (premiere salle du donjon 2). */
+    private fun enterDungeon2() {
+        d2Return = world.idx(hx, hy)
+        hx = world.d2StartX; hy = world.d2StartY
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        following = true
+        world.d2RevealCascade(hx, hy)
+        // gardiens (une seule fois, si le coffre n'est pas encore pille)
+        if (!world.d2ChestOpen && mobs.none { it.hp > 0 && world.isDungeon2(it.x.toInt(), it.y.toInt()) }) {
+            for ((k, gc) in world.d2Monsters.withIndex()) {
+                val hpv = 110 + k * 30
+                mobs.add(Mob(world.cx(gc) + 0.5f, world.cy(gc) + 0.5f, hpv, (k * 4) % 8, hpv))
+            }
+        }
+        if (!world.dungeon2Entered) {
+            world.dungeon2Entered = true
+            showMsg("LA CAVERNE DE CRISTAL... L'air est glace. Attention aux pieges de givre !")
+        } else {
+            showMsg("De retour dans la Caverne de Cristal.")
+        }
+        audio.play("door")
+        saveGame()
+    }
+
+    /** Remonte du donjon 2 vers l'ile. */
+    private fun leaveDungeon2() {
+        val back = if (d2Return >= 0) d2Return else world.dungeon2Cell
+        hx = world.cx(back); hy = world.cy(back)
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        following = true
+        audio.play("door")
+        showMsg("Vous remontez a la surface, transi de froid.")
+        saveGame()
+    }
+
     /** Descend dans une antichambre secrete : monstres gardiens + coffre d'or. */
     private fun enterSecretCache(entry: Int) {
         secretReturnCell = world.idx(hx, hy)   // on remontera ici
@@ -3069,6 +3170,32 @@ class GameView(context: Context) : View(context) {
     private fun onTap(gx: Int, gy: Int) {
         if (gameOver || victory) return
         val i = world.idx(gx, gy)
+
+        // === DONJON 2 : la Caverne de Cristal ===
+        if (world.isDungeon2(hx, hy)) {
+            // le coffre-tresor
+            if (i == world.d2Chest) {
+                if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du coffre."); return }
+                clearPendings(); pendingD2Chest = true
+                return
+            }
+            // dalle deja revelee et sure -> s'y rendre
+            if (i in world.d2Revealed && i !in world.d2Mines) {
+                val p = world.findPath(hx, hy, gx, gy)
+                if (p != null) { clearPendings(); path = p; pathStep = 0 }
+                return
+            }
+            // dalle voisine non revelee -> la sonder (attention au givre !)
+            if (world.isDungeon2(gx, gy) && i !in world.d2Revealed) {
+                if (abs(gx - hx) <= 1 && abs(gy - hy) <= 1) {
+                    clearPendings(); pendingD2Reveal = i
+                } else if (walkNextTo(gx, gy)) {
+                    clearPendings(); pendingD2Reveal = i
+                } else showMsg("Trop loin pour sonder cette dalle.")
+                return
+            }
+            return
+        }
 
         // Un villageois ou un animal sur cette case ?
         for (w in walkers) {
@@ -3496,6 +3623,103 @@ class GameView(context: Context) : View(context) {
     private fun sx(gx: Float, w: Float) = w / 2f + (gx - camX) * tile
     private fun sy(gy: Float) = (boardTop + boardBottom) / 2f + (gy - camY) * tile
 
+    /** Une case de la Caverne de Cristal : theme violet, mini-demineur de givre. */
+    private fun drawD2Cell(canvas: Canvas, gx: Int, gy: Int, i: Int) {
+        val rad = tile * 0.16f
+        val rev = i in world.d2Revealed
+        val isChest = i == world.d2Chest
+        val isExit = i == world.d2ExitCell
+
+        if (rev || isChest || isExit) {
+            // dalle de cristal revelee : degrade violet clair, joints lumineux
+            tmpRect.set(rect.left - tile * 0.04f, rect.top - tile * 0.04f,
+                        rect.right + tile * 0.04f, rect.bottom + tile * 0.04f)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(58, 44, 82)
+            canvas.drawRoundRect(tmpRect, rad, rad, paint)
+            // facette de cristal (reflet en diagonale)
+            paint.color = Color.rgb(92, 70, 128)
+            val pth = Path()
+            pth.moveTo(tmpRect.left, tmpRect.top)
+            pth.lineTo(tmpRect.right, tmpRect.top)
+            pth.lineTo(tmpRect.left, tmpRect.bottom)
+            pth.close()
+            canvas.drawPath(pth, paint)
+            // liseres brillants
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = tile * 0.02f
+            val shimmer = 0.5f + 0.5f * sin(time * 2f + gx * 0.7f + gy * 0.5f)
+            paint.color = Color.argb((90 + 90 * shimmer).toInt(), 180, 150, 240)
+            canvas.drawRoundRect(tmpRect, rad, rad, paint)
+            paint.style = Paint.Style.FILL
+
+            if (isExit) {
+                // l'escalier de remontee : fleche vers le haut lumineuse
+                paint.color = Color.rgb(30, 20, 44)
+                canvas.drawRoundRect(rect, rad, rad, paint)
+                val pulse = 0.5f + 0.5f * sin(time * 3f)
+                paint.color = Color.argb((120 + 100 * pulse).toInt(), 190, 160, 255)
+                val ar = Path()
+                ar.moveTo(rect.centerX(), rect.top + tile * 0.12f)
+                ar.lineTo(rect.right - tile * 0.14f, rect.centerY())
+                ar.lineTo(rect.left + tile * 0.14f, rect.centerY())
+                ar.close()
+                canvas.drawPath(ar, paint)
+                paint.color = Color.argb((120 + 100 * pulse).toInt(), 190, 160, 255)
+                canvas.drawRect(rect.centerX() - tile * 0.09f, rect.centerY(),
+                                rect.centerX() + tile * 0.09f, rect.bottom - tile * 0.14f, paint)
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = tile * 0.2f
+                paint.color = Color.rgb(210, 190, 255)
+                canvas.drawText("SORTIE", rect.centerX(), rect.bottom - tile * 0.01f, paint)
+            } else if (isChest) {
+                drawChest(canvas, true, world.d2ChestOpen, false, vault = true)
+            } else {
+                // numero de pieges de givre autour
+                val n = world.d2Around(gx, gy)
+                if (n > 0) {
+                    paint.textAlign = Paint.Align.CENTER
+                    paint.textSize = tile * 0.58f
+                    paint.isFakeBoldText = true
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = tile * 0.06f
+                    paint.color = Color.argb(200, 20, 12, 30)
+                    canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.21f, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.color = numberColor(n)
+                    canvas.drawText("$n", rect.centerX(), rect.centerY() + tile * 0.21f, paint)
+                    paint.isFakeBoldText = false
+                }
+            }
+            // un piege revele (on a marche dessus) : eclat de givre bleu
+            if (i in world.d2Mines && rev) {
+                paint.color = Color.rgb(150, 210, 255)
+                val cx = rect.centerX(); val cy = rect.centerY()
+                val pk = Path()
+                for (k in 0 until 8) {
+                    val a = k * (Math.PI / 4).toFloat()
+                    val r2 = if (k % 2 == 0) tile * 0.3f else tile * 0.12f
+                    val px = cx + cos(a) * r2; val py = cy + sin(a) * r2
+                    if (k == 0) pk.moveTo(px, py) else pk.lineTo(px, py)
+                }
+                pk.close()
+                canvas.drawPath(pk, paint)
+            }
+        } else {
+            // dalle non revelee : sombre, givree, tentante
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(24, 18, 36)
+            canvas.drawRoundRect(rect, rad, rad, paint)
+            paint.color = Color.argb(60, 120, 100, 180)
+            tmpRect.set(rect); tmpRect.inset(tile * 0.14f, tile * 0.14f)
+            canvas.drawRoundRect(tmpRect, rad, rad, paint)
+            // cristaux givres aux coins
+            paint.color = Color.argb(90, 150, 170, 220)
+            canvas.drawCircle(rect.left + tile * 0.2f, rect.top + tile * 0.2f, tile * 0.03f, paint)
+            canvas.drawCircle(rect.right - tile * 0.22f, rect.bottom - tile * 0.22f, tile * 0.025f, paint)
+        }
+    }
+
     private fun drawBoard(canvas: Canvas, w: Float) {
         val boardH = boardBottom - boardTop
         val nx = (w / tile).toInt() / 2 + 2
@@ -3517,6 +3741,9 @@ class GameView(context: Context) : View(context) {
                 if (l > w || t > boardBottom || l + tile < 0f || t + tile < boardTop) continue
                 rect.set(l + gap, t + gap, l + tile - gap, t + tile - gap)
                 val i = world.idx(gx, gy)
+
+                // --- LE DONJON 2 : la Caverne de Cristal (theme violet, avant l'ile)
+                if (i in world.d2Cells) { drawD2Cell(canvas, gx, gy, i); continue }
 
                 // --- L'ILE (surface) : terrain deja peint, on ne pose que les objets
                 val ter = world.terrain[i]

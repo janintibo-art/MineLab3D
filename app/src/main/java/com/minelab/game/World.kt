@@ -43,6 +43,7 @@ class World(
         const val TER_SHALLOW = 6
         const val TER_WATER = 7
         const val TER_WOOD = 8      // parquet des maisons
+        const val TER_CRYSTAL = 9  // sol de cristal du donjon 2
     }
 
     private val rnd = Random(seed)
@@ -51,7 +52,8 @@ class World(
     val uy0 = maxOf(hallH, 11) + 3
     val iy0 = uy0 + 24          // premiere ligne de l'ile
     val hy0 = iy0 + 58          // premiere ligne des interieurs de maison (sous la mer du sud)
-    val hei = hy0 + 40
+    val d2y0 = hy0 + 30         // premiere ligne du DONJON 2 (sous les interieurs)
+    val hei = hy0 + 50
 
     val grid = IntArray(wid * hei) { WALL }
     /** Terrain de surface (0 = donjon, sinon herbe/sable/mer...). */
@@ -87,6 +89,16 @@ class World(
     /** L'entree cachee du prochain donjon (revelee par le champignon). */
     var dungeon2Cell = -1
     var dungeon2Revealed = false
+    var dungeon2Entered = false          // a-t-on deja mis les pieds dans le donjon 2 ?
+    var d2StartX = 0                     // ou l'on arrive dans le donjon 2
+    var d2StartY = 0
+    var d2ExitCell = -1                  // la case de remontee vers l'ile
+    var d2Chest = -1                     // le coffre-tresor de la salle 1
+    var d2ChestOpen = false
+    val d2Cells = HashSet<Int>()         // toutes les cases du donjon 2 (rendu)
+    val d2Mines = HashSet<Int>()         // les pieges de cristal (mini-demineur)
+    val d2Revealed = HashSet<Int>()      // dalles revelees
+    val d2Monsters = ArrayList<Int>()    // cases des gardiens
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val punkSpawns = ArrayList<Pair<Int, Int>>()
@@ -225,6 +237,7 @@ class World(
         buildLights()
         buildSecretCaches()
         buildIsland()
+        buildDungeon2()
         placeMines()
         placeHearts()
         totalMines = mines.size
@@ -534,6 +547,85 @@ class World(
             }
         }
     }
+
+    /**
+     * LE DONJON 2 - PREMIERE SALLE : la Caverne de Cristal. On y descend par
+     * l'entree secrete de l'ile (revelee par le champignon de Kaos). Une salle
+     * 14x12 en cristal violet : un mini-demineur de pieges de givre, deux
+     * gardiens, et un coffre-tresor au fond. Une case ramene a la surface.
+     */
+    private fun buildDungeon2() {
+        val x0 = 2
+        val y0 = d2y0
+        val w = 14
+        val h = 12
+        if (y0 + h >= hei) return
+        for (y in y0 until y0 + h) {
+            for (x in x0 until x0 + w) {
+                val c = idx(x, y)
+                grid[c] = FLOOR
+                terrain[c] = TER_CRYSTAL
+                d2Cells.add(c)
+            }
+        }
+        // Arrivee en bas a gauche, remontee juste a cote
+        d2StartX = x0 + 1
+        d2StartY = y0 + h - 2
+        d2ExitCell = idx(x0, y0 + h - 1)
+        grid[d2ExitCell] = FLOOR
+        terrain[d2ExitCell] = TER_CRYSTAL
+        d2Cells.add(d2ExitCell)
+
+        // Le coffre-tresor, au fond a droite
+        d2Chest = idx(x0 + w - 2, y0 + 1)
+
+        // Les pieges de givre (mini-demineur) : ~18% des cases, hors zone d'arrivee
+        val safe = HashSet<Int>()
+        for (dy in -1..2) for (dx in -1..2) safe.add(idx(d2StartX + dx, d2StartY + dy))
+        safe.add(d2Chest)
+        for (dy in -1..1) for (dx in -1..1) safe.add(idx(x0 + w - 2 + dx, y0 + 1 + dy))
+        val libres = d2Cells.filter { it !in safe }
+        val nbMines = (libres.size * 0.18f).toInt()
+        val shuffled = libres.shuffled(rnd)
+        for (k in 0 until nbMines.coerceAtMost(shuffled.size)) d2Mines.add(shuffled[k])
+
+        // Deux gardiens, au centre de la salle
+        d2Monsters.add(idx(x0 + w / 2, y0 + h / 2))
+        d2Monsters.add(idx(x0 + w / 2 + 2, y0 + h / 2 - 1))
+
+        // On revele la case d'arrivee et son voisinage
+        d2Revealed.add(idx(d2StartX, d2StartY))
+    }
+
+    /** Compte les pieges de givre autour d'une case (comme le demineur). */
+    fun d2Around(x: Int, y: Int): Int {
+        var n = 0
+        for (dy in -1..1) for (dx in -1..1) {
+            if (dx == 0 && dy == 0) continue
+            if (idx(x + dx, y + dy) in d2Mines) n++
+        }
+        return n
+    }
+
+    /** Revelation en cascade dans le donjon 2 (zones sans piege adjacent). */
+    fun d2RevealCascade(sx: Int, sy: Int) {
+        val stack = ArrayDeque<Pair<Int, Int>>()
+        stack.addLast(Pair(sx, sy))
+        while (stack.isNotEmpty()) {
+            val (x, y) = stack.removeLast()
+            val c = idx(x, y)
+            if (c !in d2Cells || c in d2Revealed || c in d2Mines) continue
+            d2Revealed.add(c)
+            if (d2Around(x, y) == 0) {
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    if (inside(x + dx, y + dy)) stack.addLast(Pair(x + dx, y + dy))
+                }
+            }
+        }
+    }
+
+    fun isDungeon2(x: Int, y: Int) = inside(x, y) && idx(x, y) in d2Cells
 
     /** Cherche une case d'herbe au nord-ouest pour l'entree du prochain donjon. */
     private fun placeSecretEntrance() {

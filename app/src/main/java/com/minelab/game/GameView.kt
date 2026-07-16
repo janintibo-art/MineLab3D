@@ -3938,7 +3938,7 @@ class GameView(context: Context) : View(context) {
         val rad = tile * 0.16f
 
         // L'ile : on peint le terrain en couches continues, avant tout le reste
-        val islandVisible = cgy + ny >= world.iy0 && cgy - ny <= world.iy0 + 34
+        val islandVisible = cgy + ny >= world.iy0 && cgy - ny <= world.iy0 + 56
         if (islandVisible) drawIslandTerrain(canvas, w, cgx, cgy, nx, ny)
 
         for (gy in cgy - ny..cgy + ny) {
@@ -4283,7 +4283,7 @@ class GameView(context: Context) : View(context) {
         val x0 = cgx - nx
         val x1 = cgx + nx
         val y0 = maxOf(cgy - ny, world.iy0)
-        val y1 = minOf(cgy + ny, world.iy0 + 34)
+        val y1 = minOf(cgy + ny, world.iy0 + 56)
         if (y0 > y1) return
 
         fun terOf(gx: Int, gy: Int): Int =

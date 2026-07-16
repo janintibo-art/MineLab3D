@@ -119,6 +119,15 @@ class GameView(context: Context) : View(context) {
     private var pendingSecretChest = -1
     private var pendingD2Reveal = -1
     private var pendingD2Chest = false
+    private var pendingD2Door = false
+    private var pendingD2Chest2 = false
+    private var d2SealTarget = -1              // le sceau qu'on tente de briser
+    private var sealPicker = false             // selecteur d'element pour un sceau ouvert
+    private val sealPickRects = arrayOfNulls<RectF>(4)
+    private val sealCancelRect = RectF()
+    private var jumpBoots = false              // les Bottes a Ressort (permet de sauter)
+    private var jumpCd = 0f
+    private var jumpAnim = 0f
     private var secretReturnCell = -1        // ou remonter apres une cache
     private var d2Return = -1                 // ou remonter apres le donjon 2
     private var pendingDoor = false
@@ -184,6 +193,7 @@ class GameView(context: Context) : View(context) {
     private var spellDemoT = 0f
     // --- LANCER de sorts en combat ---
     private val btnSpell = RectF()
+    private val btnJump = RectF()
     private var spellPicker = false                  // le selecteur d'element est ouvert
     private val spellPickRects = arrayOfNulls<RectF>(4)
     private var spellSel = -1                         // dernier element choisi (raccourci)
@@ -688,6 +698,9 @@ class GameView(context: Context) : View(context) {
         gold = 0; goldAnim = 0f; secretFound.clear(); secretLooted.clear()
         d2Return = -1
         pendingD2Reveal = -1; pendingD2Chest = false
+        pendingD2Door = false; pendingD2Chest2 = false
+        sealPicker = false; d2SealTarget = -1
+        jumpBoots = false; jumpCd = 0f; jumpAnim = 0f
         showShop = false; shopMerchant = 0; shopDiscount = 0; shopMood = 0
         dlgChoices = emptyList(); dlgKind = 0
         vQuest.fill(0); fishTotal = 0; bootCount = 0; algaeCount = 0
@@ -813,6 +826,10 @@ class GameView(context: Context) : View(context) {
         e.putBoolean("d2chest", world.d2ChestOpen)
         e.putString("d2rev", setToStr(world.d2Revealed))
         e.putInt("d2ret", d2Return)
+        e.putBoolean("d2door", world.d2DoorOpen)
+        e.putBoolean("d2c2", world.d2Chest2Open)
+        e.putBoolean("boots", jumpBoots)
+        e.putString("d2seals", setToStr(world.d2SealsBroken))
         e.putString("mobs", mobs.joinToString(";") { "${it.x},${it.y},${it.hp},${it.sprite}" })
         e.putInt("energy", energyCount)
         e.putBoolean("joyOn", joyOn)
@@ -922,6 +939,13 @@ class GameView(context: Context) : View(context) {
         world.d2ChestOpen = prefs.getBoolean("d2chest", false)
         world.d2Revealed.addAll(strToSet(prefs.getString("d2rev", "")))
         d2Return = prefs.getInt("d2ret", -1)
+        world.d2DoorOpen = prefs.getBoolean("d2door", false)
+        world.d2Chest2Open = prefs.getBoolean("d2c2", false)
+        jumpBoots = prefs.getBoolean("boots", false)
+        world.d2SealsBroken.addAll(strToSet(prefs.getString("d2seals", "")))
+        // rouvrir porte et sceaux deja franchis dans la grille
+        if (world.d2DoorOpen && world.d2Door >= 0) world.grid[world.d2Door] = World.FLOOR
+        for (c in world.d2SealsBroken) world.grid[c] = World.FLOOR
         val wt = prefs.getString("wtags", "") ?: ""
         if (wt.isNotBlank()) {
             for (part in wt.split(";")) {
@@ -990,6 +1014,7 @@ class GameView(context: Context) : View(context) {
         btnZoomOut.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnSword.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnSpell.set(x - bh, y0, x, y0 + bh); x -= bh + gap
+        btnJump.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnReset.set(x - bh, y0, x, y0 + bh); x -= bh + gap
         btnFlag.set(m, y0, x, y0 + bh)
 
@@ -1130,6 +1155,8 @@ class GameView(context: Context) : View(context) {
             if (spellDemoT <= 0f) spellDemo = -1
         }
         spellCd = (spellCd - dt).coerceAtLeast(0f)
+        jumpCd = (jumpCd - dt).coerceAtLeast(0f)
+        jumpAnim = (jumpAnim - dt).coerceAtLeast(0f)
         goldAnim = (goldAnim - dt).coerceAtLeast(0f)
         updateBolts(dt)
         // La peche : attente, touche ("CA MORD"), fenetre de ferrage
@@ -1254,6 +1281,10 @@ class GameView(context: Context) : View(context) {
                 d2Reveal(world.cx(i), world.cy(i)); saveGame()
             } else if (pendingD2Chest) {
                 pendingD2Chest = false; openD2Chest(); saveGame()
+            } else if (pendingD2Door) {
+                pendingD2Door = false; enterDungeon2Room2(); saveGame()
+            } else if (pendingD2Chest2) {
+                pendingD2Chest2 = false; openD2Chest2(); saveGame()
             } else if (pendingReveal >= 0) {
                 val i = pendingReveal; pendingReveal = -1
                 doReveal(world.cx(i), world.cy(i)); saveGame()
@@ -2744,7 +2775,9 @@ class GameView(context: Context) : View(context) {
         pendingChest = false
         pendingSecretChest = -1
         pendingD2Reveal = -1
-        pendingD2Chest = false; pendingDoor = false
+        pendingD2Chest = false
+        pendingD2Door = false; pendingD2Chest2 = false
+        sealPicker = false; d2SealTarget = -1; pendingDoor = false
         pendingChest2 = false; pendingChest3 = false
         pendingAltar = false; pendingDoor1 = false; pendingDoor2 = false
         pendingMini = -1; pendingTorch = -1; pendingDoor3 = false; pendingRune = false
@@ -2825,9 +2858,84 @@ class GameView(context: Context) : View(context) {
         gainGold(150)
         flagsLeft += 5
         hp = 100
+        // la porte du fond s'ouvre : la Caverne des Quatre Sceaux !
+        if (world.d2Door >= 0) { world.grid[world.d2Door] = World.FLOOR; world.d2DoorOpen = true }
         audio.play("chest"); audio.play("win")
         noteRumeur("donjon2", "le heros a ose entrer dans la Caverne de Cristal du second donjon !", true)
-        showMsg("TRESOR DE CRISTAL ! 150 pieces d'or, +5 drapeaux, et l'energie revient au max ! (A SUIVRE...)")
+        showMsg("TRESOR ! 150 or, +5 drapeaux, energie au max. Une PORTE s'ouvre au fond... vers les Quatre Sceaux !")
+        saveGame()
+    }
+
+    /** Franchit la porte vers la Caverne des Quatre Sceaux (salle 2). */
+    private fun enterDungeon2Room2() {
+        hx = world.d2r2StartX; hy = world.d2r2StartY
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        following = true
+        audio.play("door")
+        val reste = world.d2Seals.count { it.key !in world.d2SealsBroken }
+        if (reste == 4)
+            showMsg("LA CAVERNE DES QUATRE SCEAUX ! Brisez chaque sceau avec le bon element pour atteindre le tresor.")
+        else
+            showMsg("La Caverne des Quatre Sceaux. Sceaux restants : $reste.")
+        saveGame()
+    }
+
+    private val SEAL_NAMES = arrayOf("AIR", "EAU", "TERRE", "FEU")
+
+    /** Tente de briser un sceau avec un element. Bon element = ouverture. */
+    private fun breakSeal(cell: Int, elem: Int) {
+        sealPicker = false
+        d2SealTarget = -1
+        val need = world.d2Seals[cell] ?: return
+        if (cell in world.d2SealsBroken) return
+        if (!spellKnown[elem]) {
+            showMsg("Tu ne maitrises pas encore ${SEAL_NAMES[elem]} ! (cours de Maitre Zephyrin)")
+            return
+        }
+        // petite demonstration du sort lance
+        spellDemo = elem; spellDemoT = 0.8f
+        if (elem == need) {
+            world.d2SealsBroken.add(cell)
+            world.grid[cell] = World.FLOOR
+            audio.play("win"); audio.play("chest")
+            val reste = world.d2Seals.count { it.key !in world.d2SealsBroken }
+            val phrase = when (need) {
+                0 -> "Une bourrasque disperse le sceau d'air !"
+                1 -> "Un torrent dissout le sceau d'eau !"
+                2 -> "La terre engloutit le sceau de pierre !"
+                else -> "Les flammes consument le sceau de feu !"
+            }
+            showMsg(if (reste == 0) "$phrase Le dernier sceau cede : le tresor est a toi !" else "$phrase Sceaux restants : $reste.")
+            saveGame()
+        } else {
+            // mauvais element : petit effet + legere penalite
+            hp = (hp - 3).coerceAtLeast(1)
+            audio.play("error")
+            val raté = when (need) {
+                0 -> "Le sceau d'air aspire ton sort et te souffle au visage."
+                1 -> "Le sceau d'eau eclabousse ton sort, moqueur."
+                2 -> "Le sceau de terre absorbe ton sort sans broncher."
+                else -> "Le sceau de feu ricane et recrache ton sort."
+            }
+            showMsg("$raté (-3 PV) Ce sceau exige un autre element...")
+        }
+    }
+
+    /** Le coffre des Bottes a Ressort (salle 2), garde par les 4 sceaux. */
+    private fun openD2Chest2() {
+        if (world.d2Chest2Open) { showMsg("Le coffre est vide."); return }
+        val reste = world.d2Seals.count { it.key !in world.d2SealsBroken }
+        if (reste > 0) { showMsg("Le coffre est protege ! Brisez les $reste sceaux restants."); return }
+        world.d2Chest2Open = true
+        jumpBoots = true
+        gainGold(100)
+        hp = 100
+        audio.play("chest"); audio.play("win")
+        noteRumeur("bottes", "le heros a conquis la Caverne des Quatre Sceaux et ses bottes magiques !", true)
+        showMsg("LES BOTTES A RESSORT ! Vous pouvez desormais SAUTER : touchez le bouton SAUT pour bondir !")
         saveGame()
     }
 
@@ -3173,7 +3281,26 @@ class GameView(context: Context) : View(context) {
 
         // === DONJON 2 : la Caverne de Cristal ===
         if (world.isDungeon2(hx, hy)) {
-            // le coffre-tresor
+            // la porte vers la salle 2 (une fois ouverte)
+            if (i == world.d2Door && world.d2DoorOpen) {
+                if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous de la porte."); return }
+                clearPendings(); pendingD2Door = true
+                return
+            }
+            // un SCEAU elementaire : ouvrir le selecteur d'element
+            if (world.d2Seals.containsKey(i) && i !in world.d2SealsBroken) {
+                if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du sceau."); return }
+                clearPendings(); d2SealTarget = i
+                sealPicker = true
+                return
+            }
+            // le coffre des Bottes a Ressort (salle 2)
+            if (i == world.d2Chest2) {
+                if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du coffre."); return }
+                clearPendings(); pendingD2Chest2 = true
+                return
+            }
+            // le coffre-tresor (salle 1)
             if (i == world.d2Chest) {
                 if (!walkNextTo(gx, gy)) { showMsg("Approchez-vous du coffre."); return }
                 clearPendings(); pendingD2Chest = true
@@ -3623,12 +3750,93 @@ class GameView(context: Context) : View(context) {
     private fun sx(gx: Float, w: Float) = w / 2f + (gx - camX) * tile
     private fun sy(gy: Float) = (boardTop + boardBottom) / 2f + (gy - camY) * tile
 
+    /** Un sceau elementaire : un cristal colore selon l'element requis. */
+    private fun drawSeal(canvas: Canvas, elem: Int) {
+        val rad = tile * 0.16f
+        val col = ELEM_COLORS[elem]
+        paint.style = Paint.Style.FILL
+        // socle sombre
+        paint.color = Color.rgb(24, 18, 36)
+        canvas.drawRoundRect(rect, rad, rad, paint)
+        // cristal central pulsant, couleur de l'element
+        val pulse = 0.5f + 0.5f * sin(time * 3f + elem)
+        paint.color = col
+        val cx = rect.centerX(); val cy = rect.centerY()
+        val pk = Path()
+        for (k in 0 until 6) {
+            val a = k * (Math.PI / 3).toFloat() - 1.57f
+            val r2 = if (k % 2 == 0) tile * 0.34f else tile * 0.2f
+            val px = cx + cos(a) * r2; val py = cy + sin(a) * r2
+            if (k == 0) pk.moveTo(px, py) else pk.lineTo(px, py)
+        }
+        pk.close()
+        canvas.drawPath(pk, paint)
+        // halo
+        paint.color = Color.argb((60 + 80 * pulse).toInt(), Color.red(col), Color.green(col), Color.blue(col))
+        canvas.drawCircle(cx, cy, tile * 0.42f, paint)
+        // rune de l'element (symbole simple)
+        paint.color = Color.argb(230, 255, 255, 255)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = tile * 0.04f
+        when (elem) {
+            0 -> { // air : spirale
+                canvas.drawArc(cx - tile*0.14f, cy - tile*0.14f, cx + tile*0.14f, cy + tile*0.14f, 0f, 270f, false, paint)
+            }
+            1 -> { // eau : goutte (cercle)
+                canvas.drawCircle(cx, cy, tile * 0.12f, paint)
+            }
+            2 -> { // terre : carre
+                canvas.drawRect(cx - tile*0.11f, cy - tile*0.11f, cx + tile*0.11f, cy + tile*0.11f, paint)
+            }
+            else -> { // feu : triangle
+                val tr = Path()
+                tr.moveTo(cx, cy - tile*0.14f)
+                tr.lineTo(cx + tile*0.13f, cy + tile*0.1f)
+                tr.lineTo(cx - tile*0.13f, cy + tile*0.1f)
+                tr.close()
+                canvas.drawPath(tr, paint)
+            }
+        }
+        paint.style = Paint.Style.FILL
+    }
+
     /** Une case de la Caverne de Cristal : theme violet, mini-demineur de givre. */
     private fun drawD2Cell(canvas: Canvas, gx: Int, gy: Int, i: Int) {
         val rad = tile * 0.16f
         val rev = i in world.d2Revealed
         val isChest = i == world.d2Chest
         val isExit = i == world.d2ExitCell
+
+        // --- SALLE 2 : sceaux elementaires + coffre des bottes ---
+        val sealElem = world.d2Seals[i]
+        if (sealElem != null && i !in world.d2SealsBroken) {
+            drawSeal(canvas, sealElem)
+            return
+        }
+        if (i == world.d2Chest2) {
+            // le sol du caveau puis le coffre par-dessus
+            tmpRect.set(rect.left - tile * 0.04f, rect.top - tile * 0.04f,
+                        rect.right + tile * 0.04f, rect.bottom + tile * 0.04f)
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(58, 44, 82)
+            canvas.drawRoundRect(tmpRect, rad, rad, paint)
+            drawChest(canvas, true, world.d2Chest2Open, false, vault = true)
+            return
+        }
+        if (i == world.d2Door && world.d2DoorOpen) {
+            // porte ouverte : arche lumineuse vers la salle 2
+            paint.style = Paint.Style.FILL
+            paint.color = Color.rgb(40, 28, 60)
+            canvas.drawRoundRect(rect, rad, rad, paint)
+            val pulse = 0.5f + 0.5f * sin(time * 2.5f)
+            paint.color = Color.argb((80 + 80 * pulse).toInt(), 180, 150, 255)
+            canvas.drawRoundRect(rect, rad, rad, paint)
+            paint.color = Color.rgb(210, 190, 255)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = tile * 0.22f
+            canvas.drawText("→", rect.centerX(), rect.centerY() + tile * 0.08f, paint)
+            return
+        }
 
         if (rev || isChest || isExit) {
             // dalle de cristal revelee : degrade violet clair, joints lumineux
@@ -4900,6 +5108,106 @@ class GameView(context: Context) : View(context) {
     }
 
     /** Le bouton SORT et, s'il est ouvert, le selecteur d'element. */
+    /** Le bouton SAUT (visible une fois les Bottes a Ressort obtenues). */
+    private fun drawJumpButton(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.color = if (jumpCd > 0f) Color.rgb(60, 55, 45) else Color.rgb(70, 130, 80)
+        canvas.drawRoundRect(btnJump, btnJump.height() * 0.28f, btnJump.height() * 0.28f, paint)
+        // une petite fleche/ressort
+        paint.color = Color.WHITE
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = btnJump.height() * 0.06f
+        val cx = btnJump.centerX(); val cy = btnJump.centerY()
+        val hh = btnJump.height()
+        val ar = Path()
+        ar.moveTo(cx, cy - hh * 0.2f)
+        ar.lineTo(cx - hh * 0.15f, cy + hh * 0.02f)
+        ar.moveTo(cx, cy - hh * 0.2f)
+        ar.lineTo(cx + hh * 0.15f, cy + hh * 0.02f)
+        canvas.drawPath(ar, paint)
+        // ressort (zigzag)
+        val sp = Path()
+        sp.moveTo(cx - hh * 0.1f, cy + hh * 0.1f)
+        sp.lineTo(cx + hh * 0.1f, cy + hh * 0.16f)
+        sp.lineTo(cx - hh * 0.1f, cy + hh * 0.22f)
+        sp.lineTo(cx + hh * 0.1f, cy + hh * 0.28f)
+        canvas.drawPath(sp, paint)
+        paint.style = Paint.Style.FILL
+    }
+
+    /** Bondir : franchit d'un saut la case juste devant (obstacle ou trou). */
+    private fun doJump() {
+        if (!jumpBoots || jumpCd > 0f) return
+        val d = heroDir.coerceIn(0, 3)
+        val (dx, dy) = when (d) { 0 -> 0 to 1; 1 -> 0 to -1; 2 -> -1 to 0; else -> 1 to 0 }
+        // on tente d'atterrir 2 cases plus loin (par-dessus 1 case)
+        val landX = hx + dx * 2; val landY = hy + dy * 2
+        if (!world.isWalkable(landX, landY)) {
+            showMsg("Rien ou atterrir dans cette direction.")
+            return
+        }
+        hx = landX; hy = landY
+        fx = hx + 0.5f; fy = hy + 0.5f
+        camX = fx; camY = fy
+        path = emptyList(); pathStep = 0
+        clearPendings()
+        jumpCd = 0.6f
+        jumpAnim = 0.4f
+        audio.play("pickup")
+    }
+
+    /** Le selecteur d'element quand on tente de briser un sceau. */
+    private fun drawSealPicker(canvas: Canvas) {
+        sealPickRects.fill(null)
+        val w = width.toFloat(); val h = height.toFloat()
+        // fond assombri
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(180, 0, 0, 0)
+        canvas.drawRect(0f, 0f, w, boardBottom, paint)
+        paint.color = Color.rgb(230, 220, 250)
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        paint.textSize = h * 0.03f
+        canvas.drawText("Quel element pour ce sceau ?", w / 2f, boardTop + h * 0.1f, paint)
+        paint.isFakeBoldText = false
+        // 4 gros boutons d'element
+        val sz = h * 0.12f
+        val gap = w * 0.03f
+        val totalW = sz * 4 + gap * 3
+        var x = (w - totalW) / 2f
+        val y = boardTop + h * 0.16f
+        for (el in 0..3) {
+            val r = RectF(x, y, x + sz, y + sz)
+            paint.style = Paint.Style.FILL
+            paint.color = if (spellKnown[el]) ELEM_COLORS[el] else Color.rgb(60, 60, 68)
+            canvas.drawRoundRect(r, sz * 0.2f, sz * 0.2f, paint)
+            paint.color = Color.argb(80, 0, 0, 0)
+            canvas.drawRoundRect(r, sz * 0.2f, sz * 0.2f, paint)
+            if (spellKnown[el]) {
+                drawSprite(canvas, spellBmp(el, 0, 3), r.centerX(), r.centerY() - sz * 0.08f, sz * 0.85f)
+            } else {
+                paint.color = Color.rgb(120, 120, 130)
+                paint.textSize = sz * 0.4f
+                canvas.drawText("?", r.centerX(), r.centerY() + sz * 0.12f, paint)
+            }
+            paint.color = Color.WHITE
+            paint.isFakeBoldText = true
+            paint.textSize = sz * 0.2f
+            canvas.drawText(SEAL_NAMES[el], r.centerX(), r.bottom - sz * 0.06f, paint)
+            paint.isFakeBoldText = false
+            sealPickRects[el] = r
+            x += sz + gap
+        }
+        // bouton annuler
+        paint.color = Color.rgb(120, 60, 55)
+        val cancel = RectF(w / 2f - w * 0.18f, y + sz + h * 0.03f, w / 2f + w * 0.18f, y + sz + h * 0.03f + h * 0.05f)
+        canvas.drawRoundRect(cancel, cancel.height() * 0.3f, cancel.height() * 0.3f, paint)
+        paint.color = Color.WHITE
+        paint.textSize = h * 0.022f
+        canvas.drawText("Annuler", cancel.centerX(), cancel.centerY() + h * 0.008f, paint)
+        sealCancelRect.set(cancel)
+    }
+
     private fun drawSpellButton(canvas: Canvas) {
         val e = if (spellSel in 0..3 && spellKnown[spellSel]) spellSel
                 else (0..3).firstOrNull { spellKnown[it] } ?: 0
@@ -5418,6 +5726,8 @@ class GameView(context: Context) : View(context) {
             drawSprite(canvas, sSwordV, btnSword.centerX(), btnSword.centerY(), btnSword.height() * 0.82f)
         }
         if (anySpell()) drawSpellButton(canvas)
+        if (jumpBoots) drawJumpButton(canvas)
+        if (sealPicker) drawSealPicker(canvas)
         if (inSokobanRoom()) drawBtn(canvas, btnReset, "↺", false)
         drawBtn(canvas, btnZoomOut, "−", false)
         drawBtn(canvas, btnZoomIn, "+", false)
@@ -6015,6 +6325,19 @@ class GameView(context: Context) : View(context) {
 
     private fun handleTouch(e: MotionEvent): Boolean {
         val am = e.actionMasked
+        // Le SELECTEUR DE SCEAU capte tout le toucher quand il est ouvert
+        if (sealPicker) {
+            if (am != MotionEvent.ACTION_UP) return true
+            for (el in 0..3) {
+                val r = sealPickRects[el]
+                if (r != null && r.contains(e.x, e.y)) {
+                    if (d2SealTarget >= 0) breakSeal(d2SealTarget, el)
+                    return true
+                }
+            }
+            if (sealCancelRect.contains(e.x, e.y)) { sealPicker = false; d2SealTarget = -1 }
+            return true
+        }
         // La BOUTIQUE capte tout le toucher quand elle est ouverte
         if (showShop) {
             if (am != MotionEvent.ACTION_UP) return true
@@ -6244,6 +6567,7 @@ class GameView(context: Context) : View(context) {
             spellPicker = false
             if (btnSpell.contains(e.x, e.y)) return true
         }
+        if (jumpBoots && btnJump.contains(e.x, e.y)) { doJump(); return true }
         if (anySpell() && btnSpell.contains(e.x, e.y)) { onSpellButton(); return true }
         if (swordOwned && btnSword.contains(e.x, e.y)) { doAttack(); return true }
         if (inSokobanRoom() && btnReset.contains(e.x, e.y)) { resetCurrentSokoban(); return true }

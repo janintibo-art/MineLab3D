@@ -1,5 +1,6 @@
 package com.minelab.game
 
+import kotlin.math.abs
 import kotlin.random.Random
 
 /**
@@ -52,8 +53,9 @@ class World(
     val uy0 = maxOf(hallH, 11) + 3
     val iy0 = uy0 + 24          // premiere ligne de l'ile
     val hy0 = iy0 + 58          // premiere ligne des interieurs de maison (sous la mer du sud)
-    val d2y0 = hy0 + 30         // premiere ligne du DONJON 2 (sous les interieurs)
-    val hei = hy0 + 50
+    val d2y0 = hy0 + 30         // premiere ligne du DONJON 2 (salle 1)
+    val d2r2y0 = hy0 + 44      // premiere ligne de la SALLE 2 (Caverne des Quatre Sceaux)
+    val hei = hy0 + 60
 
     val grid = IntArray(wid * hei) { WALL }
     /** Terrain de surface (0 = donjon, sinon herbe/sable/mer...). */
@@ -99,6 +101,16 @@ class World(
     val d2Mines = HashSet<Int>()         // les pieges de cristal (mini-demineur)
     val d2Revealed = HashSet<Int>()      // dalles revelees
     val d2Monsters = ArrayList<Int>()    // cases des gardiens
+    // --- SALLE 2 : la Caverne des Quatre Sceaux (enigmes elementaires) ---
+    var d2Door = -1                      // porte salle1 -> salle2 (s'ouvre apres le coffre 1)
+    var d2DoorOpen = false
+    var d2r2StartX = 0                   // arrivee dans la salle 2
+    var d2r2StartY = 0
+    var d2Chest2 = -1                    // le coffre des Bottes a Ressort
+    var d2Chest2Open = false
+    /** Les 4 sceaux elementaires : case -> element requis (0 air,1 eau,2 terre,3 feu). */
+    val d2Seals = HashMap<Int, Int>()
+    val d2SealsBroken = HashSet<Int>()   // sceaux deja resolus
     /** Villageois et animaux : case de depart -> numero de sprite. */
     val npcSpawns = ArrayList<Pair<Int, Int>>()
     val punkSpawns = ArrayList<Pair<Int, Int>>()
@@ -595,6 +607,63 @@ class World(
 
         // On revele la case d'arrivee et son voisinage
         d2Revealed.add(idx(d2StartX, d2StartY))
+
+        // Une PORTE au fond de la salle 1 (haut-droite), vers la salle 2.
+        // Elle reste fermee (WALL) tant que le coffre de cristal n'est pas pille.
+        d2Door = idx(x0 + w - 1, y0 + 1)
+        d2Cells.add(d2Door)
+        d2Revealed.add(d2Door)
+
+        buildDungeon2Room2()
+    }
+
+    /**
+     * SALLE 2 : la Caverne des Quatre Sceaux. Salle ouverte 16x13 ou quatre
+     * sceaux elementaires bloquent l'acces au coffre central des Bottes a
+     * Ressort. Chaque sceau ne cede qu'a un element precis (air, eau, terre,
+     * feu). Ordre libre. Un mauvais element coute quelques PV.
+     */
+    private fun buildDungeon2Room2() {
+        val x0 = 2
+        val y0 = d2r2y0
+        val w = 16
+        val h = 13
+        if (y0 + h >= hei) return
+        for (y in y0 until y0 + h) {
+            for (x in x0 until x0 + w) {
+                val c = idx(x, y)
+                grid[c] = FLOOR
+                terrain[c] = TER_CRYSTAL
+                d2Cells.add(c)
+                d2Revealed.add(c)          // salle ouverte : tout est visible
+            }
+        }
+        // Arrivee en haut a gauche (sous la porte de la salle 1)
+        d2r2StartX = x0 + 1
+        d2r2StartY = y0 + 1
+
+        // Un CAVEAU central : anneau de murs (rayon 2) autour du coffre, avec
+        // quatre ouvertures cardinales, chacune scellee par un sceau elementaire.
+        val cxr = x0 + w / 2
+        val cyr = y0 + h / 2
+        d2Chest2 = idx(cxr, cyr)
+        for (dy in -2..2) for (dx in -2..2) {
+            if (abs(dx) == 2 || abs(dy) == 2) {
+                // bord de l'anneau : mur, sauf les 4 axes (ouvertures)
+                if (dx == 0 || dy == 0) {
+                    // ouverture : laisser le sol
+                } else {
+                    grid[idx(cxr + dx, cyr + dy)] = WALL
+                }
+            }
+        }
+        // Les 4 sceaux, juste devant chaque ouverture (element requis)
+        d2Seals[idx(cxr, cyr - 2)] = 0          // AIR, ouverture nord
+        d2Seals[idx(cxr - 2, cyr)] = 1          // EAU, ouverture ouest
+        d2Seals[idx(cxr + 2, cyr)] = 2          // TERRE, ouverture est
+        d2Seals[idx(cxr, cyr + 2)] = 3          // FEU, ouverture sud
+        // chaque sceau est un mur infranchissable tant qu'il n'est pas brise
+        for (c in d2Seals.keys) grid[c] = WALL
     }
 
     /** Compte les pieges de givre autour d'une case (comme le demineur). */
